@@ -186,6 +186,7 @@ type Service struct {
 	sessionRequests        requestGate
 	downloadCache          *downloadURLCache
 	mediaCache             *mediaResolutionCache
+	preIDCache             *preIDCache
 	leaseHeartbeatInterval time.Duration
 	resolveTimeout         time.Duration
 	accounts               accountRuntime
@@ -219,7 +220,8 @@ func NewService(database *gorm.DB, accounts *p115account.Service, provider Trans
 // newServiceWithDependencies keeps unit tests on fake accounts, Provider,
 // task persistence, and locks without weakening the production constructor.
 func newServiceWithDependencies(accounts accountRuntime, provider TransferProvider, store taskStore, locker taskLocker) *Service {
-	return &Service{accounts: accounts, provider: provider, store: store, locker: locker, now: time.Now}
+	return &Service{accounts: accounts, provider: provider, store: store, locker: locker, now: time.Now,
+		preIDCache: newPreIDCache(preIDCacheCapacity)}
 }
 
 // NewRoutedService adds personal/system account routing and Redis admission to
@@ -268,6 +270,7 @@ func newRoutedServiceWithDependencies(
 		transferRetryInterval: transferCommitRetryInterval, now: time.Now,
 		downloadCache: newDownloadURLCache(downloadCacheCapacity),
 		mediaCache:    newMediaResolutionCache(downloadCacheCapacity),
+		preIDCache:    newPreIDCache(preIDCacheCapacity),
 	}, nil
 }
 
@@ -870,12 +873,7 @@ func (service *Service) resolveUnderLock(
 		return p115integration.File{}, "", false, err
 	}
 	preIDRange := boundedRange(sourceFile.Size)
-	finishPreID := measureStage(ctx, "preID")
-	preIDHash, err := service.provider.HashFileRange(ctx, source.Credential, p115integration.FileRangeRequest{
-		File: sourceFile, Range: preIDRange,
-	})
-	err = sourceReadResult(ctx, ctx, err)
-	finishPreID()
+	preIDHash, err := service.sourcePreID(ctx, source, sourceFile)
 	if err != nil {
 		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", service.reportProviderFailure(ctx, source, failureOperationHashSourcePreID, err))
 	}

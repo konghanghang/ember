@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-10-25（Gateway 后续协议兼容增量本地完成，待真实客户端验收；现行实施稿仍为 14 份）
+> 更新时间：2026-10-25（Gateway 采集、缓存诊断与 preID 复用本地完成，待真实验收；现行实施稿仍为 14 份）
 
 本清单只回答三件事：
 
@@ -103,6 +103,8 @@
 
 2026-10-25 增补：[Gateway 客户端兼容与转存策略](../plan/architecture/gateway-client-compatibility.md) 的首轮三批次已在 `30fb9a4d` 完成代码、本地验证和独立审查，当前仍为 14 份实施稿。用户确认默认严格、管理员可开启全局兼容模式，并接受开启后预读可能转存；图片与网页开关解耦、会话路径大小写、活跃固定会话续播重新核验和兼容模式均已落地。首轮 Go 全量非集成测试、关键五包 race、vet/build、Web 10 项组件测试与构建、采集工具 19 项离线测试通过；随后获授权的认证 scheme、协议请求矩阵与无会话首请求补查增量也已完成实现、定向回归、全量非数据库 Go 测试、Gateway/DirectPlay/EmbyToken race、vet/build 和独立代码审查，结果见主计划第 7 节。尚未部署或执行真实客户端验收，不能把本地自动化结果扩大为线上播放结论；本次不归档。
 
+同日后续优化以 `8799688` 为基线，完成采集工具的固定认证/路由/UA 过滤和离线 `diagnosticSummary`、媒体/直链固定 miss 原因及累计容量快照，以及独立 preID 成功哈希复用。两个用户和两个个人目标的顺序/重叠 fake，在任务、写入与配额工作量相同的条件下确认实际前缀读取从 2 次减至 1 次；全量非数据库 Go 测试、五包 race、vet/build、独立审查、原目录/独立目录 39 项 Python 离线测试、10 个源文件编译/AST 和 Go 日志→Python 摘要串接复验均完成，结果见主计划第 8 节。未部署或请求真实 Emby/115/数据库，真实缓存命中率、准备耗时、首帧和客户端收益未测；不增加 Web UI、配置或 migration，计划数不变且不归档。
+
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
@@ -115,7 +117,7 @@
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | [bot-telegram/group-checkin-retention.md](../plan/bot-telegram/group-checkin-retention.md) | 规则已确认，待实施 | 2026-10-08 计划记录观看或签到任一达标、共用周期与签到门槛；不将方案记录视为实现证据 | 保留在 `docs/plan/bot-telegram/` |
 | [architecture/senplayer-original-stream-compatibility.md](../plan/architecture/senplayer-original-stream-compatibility.md) | 实现与本地验证完成，待实机验收 | MKV 受限原文件匹配、现有目标复用与无许可零转存写入回归完成，MP4/HEAD/Size=0 原规则受保护；Go 非集成/race/vet/build 与抓包工具测试通过；尚未部署 | 按授权部署，完成 SenPlayer 302/CDN/字幕与播放分项验收后归档 |
-| [architecture/gateway-client-compatibility.md](../plan/architecture/gateway-client-compatibility.md) | 首轮及后续协议增量本地完成，待真实验收 | `30fb9a4d` 已完成图片/会话、live binding 与严格/兼容策略；后续 scheme、协议矩阵和无会话首请求补查已完成定向/全量非数据库/race/vet/build 与代码审查；未部署 | 按授权完成 Yamby 图片、SenPlayer 首转存、续播/停止和 Infuse 协议回归后归档 |
+| [architecture/gateway-client-compatibility.md](../plan/architecture/gateway-client-compatibility.md) | 协议与采集/缓存/preID 优化本地完成，待真实验收 | `8799688` 加本轮优化通过全量非数据库 Go、五包 race、vet/build、39 项 Python 与日志串接复验及审查；preID 等工作量 fake 为 `2→1`；未部署 | 按授权完成客户端分项、真实命中率与准备耗时验证后归档 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
@@ -225,9 +227,9 @@
 
 ## 当前结论
 
-截至 2026-10-25，`docs/plan/` 共有 14 份现行实施稿，逐项状态见 B 节。Gateway 客户端兼容首轮及后续协议增量均已完成代码、本地验证和代码审查，尚未真实验收；各历史批次的测试、数据库和客户端结果仍只覆盖当时版本，不能作为新方案已经完成的证据。当前需要处理的是：
+截至 2026-10-25，`docs/plan/` 共有 14 份现行实施稿，逐项状态见 B 节。Gateway 客户端兼容首轮、协议增量及采集/缓存/preID 优化已完成本地实现、验证与审查，真实客户端及性能收益未验收；各历史批次的测试、数据库和客户端结果仍只覆盖当时版本，不能作为新方案已经完成的证据。当前需要处理的是：
 
 1. 继续以真实 E2E 边界约束 Gateway/115 计划，不能用 fake、发布 Tag 或 Gateway `302` 代替 CDN 字节与完整会话验收
 2. 9 月 12 日后续改动的 DirectPlay PostgreSQL 专项已于 9 月 21 日补跑通过；仍需保留真实 Redis、115 与客户端未验收边界
 3. 后续每次计划退场继续同步 plan/archive/proposals 三层索引和直接引用，避免再次出现状态漂移
-4. 按 Gateway 兼容计划完成授权范围内的部署和客户端分项验收，新增协议形态须单独记录；默认严格策略保持，兼容模式由管理员显式开启
+4. 按授权完成 Gateway 部署、客户端分项及实际收益测量；本地 fake 调用次数不代替命中率或首帧证据，默认严格策略保持，兼容模式由管理员显式开启

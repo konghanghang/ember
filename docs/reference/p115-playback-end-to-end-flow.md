@@ -413,6 +413,8 @@ flowchart TD
 
 媒体缓存最多 1024 条，满时淘汰最早到期项；跨会话新鲜度截止于文件解析开始后 10 分钟与原直链缓存截止时间的较早值；同一仍 active/paused 的原播放会话可继续复用至直链安全截止时间。直链缓存仍为最多 1024 条 LRU、每条 URL 最大 16 KiB，截止于 `ExpiresAt - min(5m, 剩余寿命 10%)`，不再附加本地 10 分钟上限，也不再用固定 10 秒窗口。两层命中都不续期，不落 Redis/数据库；URL 淘汰或到期令媒体引用失效，时钟回退丢弃条目。跨会话最多延迟该短窗口后发现同路径文件变动；持续播放允许保持已验证文件身份至链接安全期限；配置/凭证变更隔离旧条目，任一账号恢复探测绕过媒体缓存。跨 session 同键昂贵处理串行，获锁后加载账号快照，错误/取消/最终租约确认失败不填媒体缓存。单条决策日志包含 mediaResolutionCache 和 downloadURLCache 的 hit/miss/bypass；媒体命中时没有源解析/查重/取链调用计数。具体合同见 [Cookie 合同 §9.1](./p115-cookie-playback-contract.md#91-同设备短期直链缓存ember-内部合同)。
 
+这两层按用户/设备隔离的媒体和直链缓存，与下节的 source preID 成功哈希复用相互独立。低层 `Resolve` 缺设备/登录上下文时不使用前两层，仍可在独立转存准入后按[Cookie 合同 §9.2](./p115-cookie-playback-contract.md#92-preid-成功结果复用ember-内部合同)复用已验证源内容结果；它不复用用户、playback、任务、配额或租约。
+
 单 Gateway 按同 session 串行执行候选、续租与清理；排队及主处理共用 2 分钟预算。GET 新建/复用 reservation 时刷新 30 秒有效期，处理期间每 10 秒续租，返回前原子确认并续租；HEAD 准入通过一次原子查询同时读取租约和账号/用户用量，返回前再次确认，但不创建或延长租约。active/paused 的到期仍只由播放事件管理。租约丢失/过期/Stopped 时不重新创建，固定 `playback_lease_lost` 回退；内部主处理预算耗尽为 `playback_resolve_timeout` 回退。客户端自己的取消/超时仍为 `499/504`，内部预算和续租错误不污染账号健康。所有后台续租都在请求收尾时停止并等待退出，之后才清理本次新建预留并放行下一请求。
 
 HLS/DASH manifest、转码分片、不完整参数、未映射路径、账号不可用、Provider 错误、秒传失败、目标复核失败、链接不兼容等都进入 fallback，不拒绝合法用户。
@@ -472,8 +474,21 @@ sequenceDiagram
             alt 配额已满或 Redis 不可用
                 DP-->>Gateway: fallback，不调用 InitRapidUpload
             end
-            DP->>DB: 创建 pending transfer task
-            DP->>Provider: HashFileRange(source, 前 128 KiB)
+            DP->>DB: 创建独立任务并推进到 Initializing
+            alt source 恢复探测、版本或身份不完整
+                DP->>DP: preIDCache=bypass，不读取或合并缓存
+                DP->>Provider: HashFileRange(source, 前至多 128 KiB)
+                DP->>DP: 校验 SHA1 与字节数，不填缓存
+            else source 完整身份可缓存
+                DP->>DP: 查 preID 缓存；miss 时 gate 等待并复查
+                alt preIDCache=hit
+                    DP->>DP: 复用已验证哈希，不增加 preIDCalls
+                else preIDCache=miss
+                    DP->>Provider: HashFileRange(source, 前至多 128 KiB)
+                    DP->>DP: 哈希/字节数有效且请求未取消才发布
+                end
+                DP->>DP: 若持有 preID gate 则释放，不等待目标上传
+            end
             DP->>Provider: InitRapidUpload(preID)
             alt status=7 range challenge
                 DP->>Provider: HashFileRange(source, challenge Range)
@@ -503,6 +518,10 @@ sequenceDiagram
 ```
 
 任一 Provider 调用返回账号级类型化错误时，DirectPlay 只把实际调用账号和固定 `credential_rejected/provider_unavailable/provider_rate_limited/provider_risk_control/provider_protocol` 失败结果交给 `P115AccountService`；请求取消、目标文件不可见、下载 Header 不兼容和其他文件级失败不污染账号健康。健康回写使用独立 2 秒上限，失败或旧结果被拒绝都不替换原始 DirectPlay 错误、302 或 Gateway fallback。
+
+preID 缓存仅保留验证过的前至多 128 KiB 哈希与字节数，最多 1024 条 LRU，成功读取后固定 10 分钟且命中不续期；过期/时钟回退丢弃，无后台刷新。key 绑定 source 账号、Provider UID、正 `DownloadCacheVersion`、精确 Cookie、AppType/source UA 等 Provider 参数、文件 ID/pickCode/完整 SHA1/Size 与范围，不包含用户、playback 目标、设备、会话或播放器 UA。每个请求仍执行源路径观察和各自的权限、租约、目标双查、任务、配额、上传及复核；challenge 始终真实读取。
+
+同键 owner 使用本请求 context，失败或取消不发布，等待者取消不影响 owner；后续等待者可用自己的 context 重新读取。成功 preID 可在目标上传前发布，后续目标失败不撤销已验证源哈希。命中不能伪造 preID 网络/账号恢复成功，source 实际路径成功的健康回写保持。实施与等工作量验证记录见[主计划第 8 节](../plan/architecture/gateway-client-compatibility.md#8-采集缓存诊断与-preid-复用2026-10-25)，fake 减少读取不证明真实命中率、首帧或起播延迟改善。
 
 ### 7.1 Transfer task 状态
 
@@ -558,7 +577,8 @@ downurl 和通用 GET 的响应体读取中断在调用方 context 有效时是 
 | `sourceResolveMs` | 当前调用等待源文件解析的时间，包括共享目录等待与最终文件匹配 |
 | `targetSearchMs` | playback 目标查重累计耗时；锁内外重复查询累计计数 |
 | `lockWaitMs` | 获取内容锁的等待时间，不是持锁时长 |
-| `preIDMs` / `challengeMs` | 源 preID / challenge 的 Provider Range Hash，各自包含其内部获取源直链与读取范围 |
+| `preIDWaitMs` | 当前请求等待同源 preID gate 的时间，独立于实际源读取；可能等待后命中缓存 |
+| `preIDMs` / `challengeMs` | 当前请求实际执行的源 preID / challenge Provider Range Hash，各自包含内部取链与读取范围；preID hit 不产生 `preIDCalls`，challenge 不缓存 |
 | `rapidUploadMs` | 秒传初始化与 challenge 后重试累计，包含 Provider 内上传信息读取 |
 | `targetVerifyMs` | 秒传后目标复核，包括 Provider 的可见性轮询等待 |
 | `transferCommitMs` | Redis 转存成功记账及其有限重试累计 |
@@ -566,6 +586,10 @@ downurl 和通用 GET 的响应体读取中断在调用方 context 有效时是 
 | `otherMs` | DirectPlay 总耗时减上述互不嵌套阶段，包括任务持久化、健康回写、其余转存准入/清理及本地编排；不能直接认定为数据库耗时 |
 
 各阶段同时输出同前缀 `Calls`，例如 `targetSearchCalls=2`、`rapidUploadCalls=2`；这些是业务操作调用次数，不能当成 HTTP 请求总数。耗时使用单调时钟，单位毫秒，分别取整可能使展示值相差少量毫秒。既有 `durationMs` 仍是 Gateway 请求处理时长，fallback 时可能包含媒体代理传输，不能当作首帧时间，也不能把它与 `directPlayMs` 相加。
+
+最终决策保留 `mediaResolutionCache/downloadURLCache=hit|miss|bypass`，另有 `preIDCache=hit|miss|bypass`。前两层只有 miss/bypass 输出固定 `mediaResolutionCacheReason/downloadURLCacheReason`，hit 不带 reason；preID 没有独立 reason 合同。完整枚举见[Cookie 合同 9.1](./p115-cookie-playback-contract.md#91-同设备短期直链缓存ember-内部合同)，其中 missing 只证明当前条目不存在，不能推断配置变化或容量淘汰。
+
+`mediaCacheEvictions/downloadCacheEvictions` 只在本请求实际触及对应 cache 时输出，表示收尾时的进程累计容量淘汰快照；过期、时钟回退和显式移除不计入。缺失不等于零，不同请求快照不能求和或关联到某次 miss 的原因；采集摘要只给 `maxObserved`，`intervalDelta=unknown`。preID 没有容量快照输出。上述诊断不改变媒体/直链缓存的 key、容量、TTL 或门控。
 
 排查 sourceResolve 耗时时，开启 Debug 后查看 `code=source_directory_resolved` 的 `parentResolveMs/listMs/listPages` 及 `shared/callers/entries/durationMs/success`。该明细每个共享任务一条，`listPages` 为实际尝试的列表请求数（含失败页），根目录文件的 `parentResolveMs=0`；不可把共享任务耗时乘以等待者人数视为串行耗时。明细不输出路径、凭证、Provider ID 或摘要。
 
@@ -580,7 +604,7 @@ downurl 和通用 GET 的响应体读取中断在调用方 context 有效时是 
 - `requestId` 是 Gateway 进程随机前缀与原子序号生成的请求标识，不采信客户端 Header；贯穿视频入口、DirectPlay 阶段、回退、最终决策与请求完成。`sessionRef` 是带进程随机种子的 Server/用户/映射/设备/PlaySessionId 摘要，关联视频与播放事件；缺失身份为 `unavailable`，进程重启后不可关联，不使用原始会话或 Redis Key。
 - `video_request_started` 在视频身份校验及上游调用前记录 method/path、规范化 `rangeKind=none|bounded|open|suffix|multiple|invalid` 与合法数值，`purpose/secPurpose=none|prefetch|other` 仅为观测，绝不作为拦截依据。非法、超长和多 Range 不输出原文，日志不读取未认证请求体。
 - `playback_info_started/finished` 包含按需播放信息准备的时间；`video_context_resolved` 标记 `playbackContext=client|supplemented|unavailable`，播放证明不是用户点击播放的证据。
-- `direct_play_step` 使用固定 step 与 phase：远端阶段复用既有 sourceResolve/targetSearch/lockWait/preID/challenge/rapidUpload/targetVerify/transferCommit/downloadURL；增加 sourceLocation/sessionWait/mediaWait/downloadWait/routing/leaseAdmission/accounts/leaseConfirm/accessTouch/transferAdmission/taskBegin/healthUpdate。started 在调用前输出，finished 只表示返回，不表示成功；总结果仍以最终决策为准。等待与准备步骤不新增累计耗时列，避免与 prepareMs 重复计数。leaseAdmission 另记录 created/reused；两层缓存记录 hit/miss/bypass，媒体命中不会虚构 Provider 调用。
+- `direct_play_step` 使用固定 step 与 phase：远端阶段复用既有 sourceResolve/targetSearch/lockWait/preID/challenge/rapidUpload/targetVerify/transferCommit/downloadURL；增加 sourceLocation/sessionWait/mediaWait/downloadWait/routing/leaseAdmission/accounts/leaseConfirm/accessTouch/transferAdmission/taskBegin/healthUpdate，并以 preIDWait 单独观察源哈希串行等待。started 在调用前输出，finished 只表示返回，不表示成功；总结果仍以最终决策为准。preIDWait 独立累计且不计入 preIDMs，其余等待与准备步骤不新增累计耗时列，避免与 prepareMs 重复计数。leaseAdmission 另记录 created/reused；mediaResolutionCache/downloadURLCache/preIDCache 记录 hit/miss/bypass，命中不会虚构 Provider 调用。
 - `video_fallback_started`、`video_fallback_headers`、`video_fallback_completed` 分别记录开始、上游响应头到达和代理退出；后两者 durationMs 均从本次回退开始计算。未收到响应头时没有 headers 日志且 upstreamStatus=0；completed 不等于客户端成功播放。原最终 fallback 决策仍由响应头或错误 hook 单次输出。
 - `playback_event_received` 记录通过身份校验后的事件类型与 snapshotState；`playback_lease_update_started/updated/not_found/skipped` 关联 requestId/sessionRef，成功包含当前状态与账号/用户 reserved/active/occupied。错误仍为 Warn，并补关联标识；不输出事件原始 body、原始 PlaySessionId、Token、Cookie、直链或未知错误内容。
 
@@ -602,6 +626,8 @@ level=warn code=playback_rejected message="播放请求已拒绝" result=rejecte
 API 成功读取控制台用户用量时，Debug `p115_user_usage_read` 记录 `userId/playbackMode/usageAvailable`、用户 reserved/active/occupied、转存 pending/used/limit、`businessTimezone` 及 `sampledAtUnixMs/dayStartUnixMs/dayEndUnixMs`。时间来自本次读取时钟和全局 `CRON_TIMEZONE`；按相同用户及相近时间对照 Gateway 日志。读取失败仍返回 unavailable/null，并沿用读取失败日志，不生成成功零值快照。详情摘要与独立用量请求会分别读取，日志是各次读取的快照，不承诺跨请求原子性。
 
 Debug 请求摘要记录有界 method/Host/原始 request path、query key、route、status/outcome/耗时和脱敏认证 Header 形态；Info 对响应级合同成立后的每个唯一 MediaSource 记录 `playback_info_media_source_observed`，完整显示合法 `mediaPath`、Size/播放能力和 proof 接受/拒绝原因。按需 PlaybackInfo 选中的路径即使没有形成 proof 也进入最终决策；真正进入 DirectPlay 后再记录 `embyPathPrefix/sourceRootId/mappedRelativePath`，以核对 Emby 原路径和 115 source 映射。Emby fallback 记录 `fallbackTarget/fallbackSource/upstreamStatus/proxyErrorCode`。Debug 不重复生成第二条决策。所有日志仍禁止 query value、Header 原值、Token、Cookie、完整 SHA1、115 URL、PlaybackInfo 原文或上游原始错误。当前明确不建日志表。
+
+仓库外采集产物使用更窄的逐 code 过滤，新增 `diagnosticSummary` 将认证、图片、回退、耗时和缓存结果按已观察证据汇总。应用日志只在唯一且一致的 requestId 内关联，冲突标记歧义；图片 `upstreamStatus` 保持 unknown，登录上游 200 不证明本地 Token 映射成功。PCAP 与 Gateway 日志不能按时间相邻自动合并，包端响应头与应用阶段耗时分别保留，不相加推断首帧；字段和使用边界见[采集手册](../runbooks/gateway-packet-capture.md#4-离线分析与对照)。
 
 ## 9. 数据与秘密边界
 
@@ -631,6 +657,8 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
 
 2026-10-25 首轮三批次基线为 `master@30fb9a4d`，后续协议增量已完成认证 scheme、复杂 PlaybackInfo/多源、实际视频 UA、条件 Range、非加速媒体代理与无会话首请求补查的定向回归，以及全量非数据库 Go 测试、Gateway/DirectPlay/EmbyToken race、vet/build 和独立代码审查；记录见[主计划第 7 节](../plan/architecture/gateway-client-compatibility.md#7-后续协议兼容改进2026-10-25)，入口见[测试指南](../runbooks/testing.md)。普通字幕/HLS/Audio/Download/Sync 只验证受保护透明代理，Audio/Sync 不增加专用能力，Download 不证明新增套餐权益；本轮不增加 Web UI、配置、migration 或 CORS，未部署，不把历史 Infuse/SenPlayer 实测扩展为这些新增形态已验收。
+
+同日基于 `master@8799688` 的采集/缓存/preID 优化已完成身份/并发/失败回归、全量非数据库 Go 测试、DirectPlay/账号/配额/115 Adapter/Gateway 五包 race、vet/build 与独立审查。两个用户、两个个人目标的顺序和重叠 fake 均验证 preID 读取 `2→1`，source 解析、目标双查、两次独立上传/复核/取链、两份任务和每用户一次配额保持；完整计数见[Cookie 合同 9.2](./p115-cookie-playback-contract.md#92-preid-成功结果复用ember-内部合同)。Python `3.9.6` 在原目录及独立复制目录的 39 项离线测试、10 个源文件编译/AST，以及 Go 实际日志字段→Python 过滤/摘要串接复验通过；结果见[主计划第 8 节](../plan/architecture/gateway-client-compatibility.md#8-采集缓存诊断与-preid-复用2026-10-25)。未部署或请求真实 Emby/115/数据库，这些结果不证明真实命中率、首帧或起播延迟。
 
 2026-10-17 二轮修复的自动化证据：`080be97`（A）、`da4d64a`（B）、`d3f6fed`（C）对应工作区均通过 API `go vet ./...`、`go test ./...`、`go build ./...`；B 的 Gateway、C 的 Provider/账号/DirectPlay/Gateway 另有 race 验证。新增 fake/SQL mock 覆盖文件错误与健康隔离、errno、断连后停止释放、设备与凭证合并键、每 mapping 配额及淘汰、假时钟阶段预算、取消日志、秒传观测、UID 桶与提交后清理。该批验证未启用真实 PostgreSQL 集成，也未请求真实 Emby/115/Redis 或播放器，不能并入历史真实验收结论。
 

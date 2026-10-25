@@ -1,6 +1,6 @@
 # Gateway 客户端兼容与首次转存策略方案
 
-> 状态：首轮及后续协议兼容实现与本地验证完成，待真实客户端验收
+> 状态：协议兼容、诊断与 preID 优化实现和本地验证完成，待真实客户端及性能验收
 > 负责人：Ember
 > 更新时间：2026-10-25
 
@@ -120,6 +120,28 @@
 - [ ] 经授权部署后按客户端和版本执行真实验收；在此之前保持未验收边界。
 
 验证版本为 `master@30fb9a4d75dfb2d7371f55c39d967a42e72b82d9` 加本轮后续增量。`go test ./... -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go test -race ./internal/playbackgateway ./internal/services/directplay ./internal/services/embytoken -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go vet ./...` 和 `go build ./...` 均通过。新增测试使用合成 fixture、进程内 Transport/Recorder，不代表任何新增客户端版本已实机验收；本次无配置、模型或 schema 变更，不新增 migration，也未重新执行未变更的 Web/Bot 验证。
+
+### 8. 采集、缓存诊断与 preID 复用（2026-10-25）
+
+前述协议增量已提交为 `8799688ac555e91ba584bfe4c3ee41dc8de9bcb4`。用户随后授权按顺序优化以下三项；基线只读调查与离线样本不代表性能改善或真实客户端验收。
+
+1. **采集工具补齐**：安全接纳现有认证诊断和通用请求摘要；PCAP 增加有界客户端 family/version 与登录、图片、字幕等固定路由类别。旧输出字段保持，在离线结果中增加诊断摘要，区分本地最终状态、明确上游状态和 unknown。只在唯一且一致的 requestId 内关联 Gateway 日志，重复或冲突事件标记歧义，不按时间猜测 PCAP 与日志会话，不输出凭据、原始 body、任意路径或 URL。
+2. **缓存原因诊断**：保留媒体/直链 hit、miss、bypass 结果，增加有界固定原因，仅描述当前 lookup 可证实的缺失、过期、时钟回退、新鲜度或依赖 URL 失效；无法归因的 miss 不猜测配置变化或容量淘汰。容量驱逐计数为实际触及 cache 的进程内累计快照，不是每请求增量；离线摘要不得求和。缓存键、容量、TTL、淘汰顺序和准入保持。
+3. **preID 成功复用**：先用两个用户、不同个人 playback 目标且相同 source 文件的 fake 请求测定前缀读取次数，保持两份目标写入、任务与配额工作量相同，再实现有界进程内成功缓存和同键在途读取串行/复查。只缓存经过 SHA1/字节数校验的前至多 128 KiB 哈希；源账号、Provider 身份、干净配置代次、精确凭据及 Provider 参数、文件 ID/pickCode/完整 SHA1/Size 与读取范围共同隔离。实现采用固定 1024 条和 10 分钟非滑动 TTL，无持久化、后台刷新或新配置；source 恢复探测/未知版本直接 bypass。
+
+preID 查询仍位于目标双查、转存许可、配额预留及任务开始之后；实际读取成功且调用未取消才发布成功结果。结果无需等待目标上传结束，目标流程失败不撤销已证实的内容哈希。复用现有 requestGate，持有者使用自己的请求上下文，取消/失败不发布，后续等待者可重新读取；不复制任务、配额、健康结果或 owner 的 Provider 计时。`preIDCalls` 只计实际 HashFileRange；缓存命中与等待单独用固定状态/阶段表达。challenge 仍实时读取，不复用 preID 缓存。
+
+本轮不增加图片/字幕内容缓存、详情预热、通用失败缓存、连接池调参或新的取消状态机；不修改 API/数据库 schema、配置入口和前端。source 实际路径观察继续按原合同报告健康，preID 缓存不得冒充网络恢复成功。
+
+进度与证据：
+
+- [x] 采集补齐与脱敏、歧义、离线摘要红绿验证通过；Python 3.9.6 原目录及独立复制的 39 项测试通过，10 个源码编译/语法检查通过，编译产物仅在临时目录。嵌套 JSON、合法旧原因被过滤和有可信绑定的双会话被误判三项审查问题已修复并复核。
+- [x] 缓存原因及容量快照七组红绿测试通过，DirectPlay 非集成全包/race/vet/build 通过，原命中/失效和 Debug 事件行为保持。
+- [x] 两个个人目标的等工作量 preID 基线与优化后读取次数验证通过；顺序和真实 gate 等待的重叠场景均由两次降为一次，源解析 2、目标查重 4、上传/目标复核/取链各 2、独立任务 2、每用户配额 1 保持。缓存/取消/恢复探测/门控/配额/任务隔离及同范围 challenge 实读回归通过。
+- [x] 全量非数据库测试、相关五包 race、vet/build、离线 Python 测试和独立代码审查通过；现行文档同步完成，Go 实际 LogFields 经 Python 过滤及摘要的跨语言复验通过。
+- [ ] 经授权部署后衡量真实命中率与准备耗时；不据 fake 调用次数宣称首帧或起播时延改善。
+
+验证基线为 `master@8799688ac555e91ba584bfe4c3ee41dc8de9bcb4` 加本节增量。在 `services/api` 执行 `go test ./... -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go test -race ./internal/services/directplay ./internal/services/p115account ./internal/services/p115quota ./internal/integrations/p115 ./internal/playbackgateway -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go vet ./...`、`go build ./...` 均通过；Python 使用合成报文/日志和 mocked SSH。没有启动项目服务或连接真实 Emby/115/数据库，未部署或取得实际客户端性能数据。
 
 ## 影响范围
 

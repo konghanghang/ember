@@ -48,7 +48,7 @@ func observeCache(ctx context.Context, name, outcome string) {
 	if outcome != "hit" && outcome != "miss" && outcome != "bypass" {
 		return
 	}
-	if name != "downloadURLCache" && name != "mediaResolutionCache" {
+	if name != "downloadURLCache" && name != "mediaResolutionCache" && name != "preIDCache" {
 		return
 	}
 	if observer, _ := ctx.Value(stepObserverKey{}).(stepObserver); observer != nil {

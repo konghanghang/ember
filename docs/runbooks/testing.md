@@ -76,6 +76,23 @@ go test -race ./internal/playbackgateway -run '^TestGateway(ApplicationAuthoriza
 
 真实验收仍须经授权部署后按客户端与版本记录登录、选源、首播/复用、拖动/续播、字幕、停止及 CDN Range 的分项结果；fake 响应、Gateway `302/206`、上游会话 `204` 不证明首帧或完整播放。既有 Infuse/SenPlayer 样本只覆盖当时版本与请求形态。
 
+采集、缓存原因与 preID 复用增量在 `services/api` 执行：
+
+```bash
+go test ./internal/services/directplay -run '^Test(CacheDiagnostics|PreID)' -skip 'Integration|PostgreSQL' -count=1 -timeout=180s
+go test -race ./internal/services/directplay -skip 'Integration|PostgreSQL' -count=1 -timeout=180s
+```
+
+- `cache_diagnostics_test.go` 锁定媒体/直链全部固定原因、hit 无 reason、未触及缓存不输出容量快照、强制刷新失败仍有诊断，以及并发容量淘汰只输出进程累计快照；Provider 工作量、原 TTL/淘汰顺序和 Debug 事件保持。
+- `preid_cache_test.go`、`preid_behavior_test.go` 与 `preid_reuse_test.go` 覆盖源账号/Provider/正版本/精确凭据/Provider 参数/完整文件身份/范围隔离，1024 条容量与固定 10 分钟 TTL、时钟回退、非法哈希/字节数和取消不发布、独立等待者取消、失败 owner 后重试，以及恢复探测/未知身份不读取、不合并、不发布。成功哈希无需等待目标上传，后续目标失败不删除；同范围 challenge 仍实时读取，HEAD、许可、配额、任务和健康边界不能被缓存跳过。
+- 等工作量验证保留两个用户、两个个人目标和各自任务/配额，分别比较顺序及重叠请求；已取得 fake 基线到复用后的 preID 读取 `2→1`，source 解析 `2`、目标查重 `4`、上传/复核/最终取链各 `2`、独立任务 `2`、每用户额度 `1` 均保持。只减少前缀读取不能当作真实命中率或客户端延迟收益。
+
+采集工具在仓库根运行 `python3 -B -m unittest discover -s scripts/gateway-capture/tests -v`，使用合成 PCAP、fake socket 和 mock SSH。覆盖固定路由模板与 UA、有界认证逐 code 过滤、恶意嵌套 JSON、requestId 歧义和明确会话绑定例外、上游 unknown、图片最终状态、独立阶段统计、最终决策缓存计数、累计容量快照及 preIDWait 新字段；不按时间跨 PCAP/日志 join。详细输出合同见[抓包手册](./gateway-packet-capture.md#4-离线分析与对照)。
+
+最后复用全量非数据库 Go 测试、相关包 race、vet/build 和独立审查，执行结果单独记入[主计划第 8 节](../plan/architecture/gateway-client-compatibility.md#8-采集缓存诊断与-preid-复用2026-10-25)。本轮没有 Web UI、配置、migration、图片/字幕缓存、预热、负缓存或连接池调参；测试不启动项目服务、不访问真实外部系统或数据库。实际命中率和准备耗时仍须经授权部署后测量。
+
+2026-10-25 在 `master@8799688` 加本轮增量上，`go test ./... -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、DirectPlay/p115account/p115quota/integrations/p115/playbackgateway 五包同范围 race、全量 `go vet ./...` 与 `go build ./...` 均通过，独立审查问题已收口。Python `3.9.6` 原目录和独立复制目录的 39 项离线测试、10 个源文件编译/AST 检查通过；另以 Go 实际 `TimingDiagnostics.LogFields` 串接 Python `filter_line/build_summary` 复验 miss/hit/bypass、新原因/快照/preID 字段及累计摘要语义。这些本地验证没有使用真实 Emby、115 或数据库。
+
 2026-09-16 上述两种范围均通过。新增回归覆盖独立 locker 在真实 `database/sql` 小连接池上的 fake 锁竞争/取消、A 租约过期后 B 占满额度时 A 不得返回直链，以及 HEAD/Playing 不重建丢失租约。`TestIntegrationPostgresContentLockSmallPoolWaiterCancellation` 已保留为真实 PostgreSQL 专项，但本轮专用库不可达，用户确认采用 fake 验收，未执行该用例；不能将 fake driver 或 miniredis 结果写成数据库/真实 Redis 已验证。
 
 2026-09-21 已在专用 `ember_integration_codex` PostgreSQL 数据库补跑 DirectPlay 专项：

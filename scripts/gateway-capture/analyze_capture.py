@@ -7,13 +7,31 @@ import re
 import secrets
 from urllib.parse import parse_qs, urlsplit
 
+from logs import CLIENT_PREFIXES, safe_version
 from wire import connection, records, tcp_packet
 
 _REFERENCE_KEY = secrets.token_bytes(32)
 _HTTP_START = re.compile(rb"(?:GET|HEAD|POST|PUT|DELETE|PATCH|OPTIONS) /|HTTP/1\.[01] [0-9]{3}")
-_QUERY_KEYS = {"api_key", "x-emby-token", "playsessionid", "mediasourceid", "static",
+_QUERY_KEYS = {"api_key", "x-emby-token", "x-mediabrowser-token", "accesstoken", "playsessionid", "mediasourceid", "static",
                "container", "userid", "starttimeticks", "isplayback", "isstatic",
                "maxstreamingbitrate", "subtitleindex", "audiostreamindex"}
+PATH_CATEGORIES = {"authentication", "public_users", "item_image", "user_image", "subtitle", "playback_info",
+                   "video", "session_event", "system_info_public", "system_info", "other"}
+_SEGMENT = r"[^/%\\?#\x00-\x20\x7f]{1,256}"
+_TEMPLATE_PATHS = (
+    (r"Users/AuthenticateByName", "/Users/AuthenticateByName", "authentication"),
+    (r"Users/Public", "/Users/Public", "public_users"),
+    (rf"Items/{_SEGMENT}/Images/{_SEGMENT}", "/Items/{Id}/Images/{Type}", "item_image"),
+    (rf"Items/{_SEGMENT}/Images/{_SEGMENT}/[0-9]{{1,10}}", "/Items/{Id}/Images/{Type}/{Index}", "item_image"),
+    (rf"Users/{_SEGMENT}/Images/{_SEGMENT}", "/Users/{UserId}/Images/{Type}", "user_image"),
+)
+for _family in ("Items", "Videos"):
+    for _ticks in (False, True):
+        _TEMPLATE_PATHS += ((
+            rf"{_family}/{_SEGMENT}/{_SEGMENT}/Subtitles/[0-9]{{1,10}}/"
+            + (r"[0-9]{1,20}/" if _ticks else "") + r"Stream\.[a-z0-9]{1,12}",
+            "/" + _family + "/{Id}/{MediaSourceId}/Subtitles/{Index}/"
+            + ("{StartPositionTicks}/" if _ticks else "") + "Stream.{Format}", "subtitle"),)
 
 
 def reference(value):
@@ -22,10 +40,38 @@ def reference(value):
 
 
 def safe_path(path):
-    """Keep known playback routes; unknown paths may embed credentials and are omitted."""
+    """Keep legacy playback paths; newly recognized dynamic routes expose templates only."""
+    return path_metadata(path)[0]
+
+
+def path_metadata(path):
+    """Classify observed path shapes, not Gateway authorization or route admission."""
+    if len(path) > 2048 or "%" in path:
+        return "[other]", "other"
+    for pattern, template, category in _TEMPLATE_PATHS:
+        if re.fullmatch(r"/(?:emby/)?" + pattern, path, re.I):
+            return template, category
     media = r"/(?:emby/)?(?:Videos|Items)/[0-9]{1,20}/(?:PlaybackInfo|stream(?:\.[a-z0-9]{1,12})?|original\.(?:mp4|mkv))"
     fixed = r"/(?:emby/)?(?:Sessions/Playing(?:/Progress|/Stopped)?|System/Info(?:/Public)?)"
-    return path if re.fullmatch(media + "|" + fixed, path, re.I) else "[other]"
+    if re.fullmatch(media, path, re.I):
+        return path, "playback_info" if path.lower().endswith("/playbackinfo") else "video"
+    if re.fullmatch(fixed, path, re.I):
+        if "/sessions/" in path.lower():
+            return path, "session_event"
+        return path, "system_info_public" if path.lower().endswith("/public") else "system_info"
+    return "[other]", "other"
+
+
+def client_metadata(agent):
+    """Match the Go prefix/version contract without copying arbitrary UA suffixes."""
+    for prefix, family in CLIENT_PREFIXES:
+        if not agent.startswith(prefix):
+            continue
+        version = re.split(r"[ \t]", agent[len(prefix):], maxsplit=1)[0]
+        if not safe_version(version):
+            return "other", family, "invalid"
+        return prefix + version, family, version
+    return "other", "missing" if not agent else "other", ""
 
 
 def http_summary(flow, timestamp, data, gateway_port=8081):
@@ -64,17 +110,16 @@ def http_summary(flow, timestamp, data, gateway_port=8081):
         return None
     parsed = urlsplit(target)
     query = parse_qs(parsed.query, keep_blank_values=True, max_num_fields=256)
-    event.update(kind="request", method=method, path=safe_path(parsed.path),
+    safe, category = path_metadata(parsed.path)
+    event.update(kind="request", method=method, path=safe, routeCategory=category,
                  queryKeys=sorted({key.lower() if key.lower() in _QUERY_KEYS else "other" for key in query}))
-    agent = re.search(r"\b(?:Infuse(?:-Direct)?|SenPlayer)/[0-9]{1,5}(?:\.[0-9]{1,5}){0,4}(?![0-9.])",
-                      headers.get("user-agent", ""))
-    event["client"] = agent.group(0) if agent else "other"
+    event["client"], event["clientFamily"], event["clientVersion"] = client_metadata(headers.get("user-agent", ""))
     value = headers.get("range", "")
     if re.fullmatch(r"bytes=(?:[0-9]+-[0-9]*|-[0-9]+)", value):
         event["range"] = value
-    for key, values in query.items():
-        if key.lower() == "playsessionid" and len(values) == 1:
-            event["sessionRef"] = reference(values[0])
+    sessions = [value for key, values in query.items() if key.lower() == "playsessionid" for value in values]
+    if len(sessions) == 1:
+        event["sessionRef"] = reference(sessions[0])
     authorization = headers.get("x-emby-authorization", headers.get("authorization", ""))
     device = re.search(r'DeviceId="([^"\r\n]{1,512})"', authorization, re.I)
     if device:

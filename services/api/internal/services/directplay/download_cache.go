@@ -39,11 +39,12 @@ type cachedDownload struct {
 // downloadURLCache retains only bounded, process-local signed URLs and opaque
 // keys. It never owns playback leases, task provenance or account health.
 type downloadURLCache struct {
-	mu       sync.Mutex
-	entries  map[string]*list.Element
-	lru      *list.List
-	capacity int
-	flights  requestGate
+	mu        sync.Mutex
+	entries   map[string]*list.Element
+	lru       *list.List
+	capacity  int
+	flights   requestGate
+	evictions uint64
 }
 
 // newDownloadURLCache creates a bounded LRU without background workers.
@@ -80,20 +81,43 @@ func (cache *downloadURLCache) get(key string, now time.Time) (p115.DownloadURLR
 // getEntry exposes the original deadline to dependent media-cache entries;
 // a lookup must never extend either layer's lifetime.
 func (cache *downloadURLCache) getEntry(key string, now time.Time) (cachedDownload, bool) {
+	entry, reason := cache.lookupEntry(key, now)
+	return entry, reason == ""
+}
+
+// lookupEntry reports only the rejection observed at this lookup, preserving
+// deadline checks, invalid-entry removal and access LRU. Empty reason is a hit.
+func (cache *downloadURLCache) lookupEntry(key string, now time.Time) (cachedDownload, string) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	element := cache.entries[key]
 	if element == nil {
-		return cachedDownload{}, false
+		return cachedDownload{}, "entry_missing"
 	}
 	entry := element.Value.(cachedDownload)
-	if now.Before(entry.createdAt) || !now.Before(entry.expiresAt) || !allowedCachedDownloadHost(entry.result.URL) {
+	var reason string
+	switch {
+	case now.Before(entry.createdAt):
+		reason = "clock_rollback"
+	case !now.Before(entry.expiresAt):
+		reason = "expired"
+	case !allowedCachedDownloadHost(entry.result.URL):
+		reason = "host_rejected"
+	}
+	if reason != "" {
 		cache.lru.Remove(element)
 		delete(cache.entries, key)
-		return cachedDownload{}, false
+		return cachedDownload{}, reason
 	}
 	cache.lru.MoveToFront(element)
-	return entry, true
+	return entry, ""
+}
+
+// evictionCount samples only capacity removals under the existing cache mutex.
+func (cache *downloadURLCache) evictionCount() uint64 {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	return cache.evictions
 }
 
 // put retains a URL until its provider expiry minus the safety window, never
@@ -120,6 +144,7 @@ func (cache *downloadURLCache) put(key string, result p115.DownloadURLResult, no
 		oldest := cache.lru.Back()
 		delete(cache.entries, oldest.Value.(cachedDownload).key)
 		cache.lru.Remove(oldest)
+		cache.evictions++
 	}
 	cache.entries[key] = cache.lru.PushFront(entry)
 }
@@ -167,8 +192,12 @@ func (service *Service) downloadCandidate(ctx context.Context, account p115accou
 	target p115.File, ua, taskID string, preexisting bool, scope *downloadCacheScope,
 ) (RedirectCandidate, error) {
 	key := scope.downloadKey(account, target, ua)
-	if key == "" || service.downloadCache == nil {
-		recordDownloadCache(ctx, "bypass")
+	if key == "" {
+		recordDownloadCache(ctx, "bypass", "key_unavailable")
+		return service.fetchDownloadCandidate(ctx, account, target, ua, taskID, preexisting)
+	}
+	if service.downloadCache == nil {
+		recordDownloadCache(ctx, "bypass", "cache_unavailable")
 		return service.fetchDownloadCandidate(ctx, account, target, ua, taskID, preexisting)
 	}
 	finishWait := observeStep(ctx, "downloadWait")
@@ -178,15 +207,21 @@ func (service *Service) downloadCandidate(ctx context.Context, account p115accou
 		return RedirectCandidate{}, err
 	}
 	defer release()
+	recordCacheUse(ctx, nil, service.downloadCache)
 	if !preexisting {
 		service.downloadCache.remove(key)
 	}
-	if result, ok := service.downloadCache.get(key, service.now()); ok {
-		recordDownloadCache(ctx, "hit")
+	entry, reason := service.downloadCache.lookupEntry(key, service.now())
+	if reason == "" {
+		recordDownloadCache(ctx, "hit", "")
+		result := entry.result
 		return RedirectCandidate{URL: result.URL, ExpiresAt: result.ExpiresAt, HeaderMode: result.HeaderMode,
 			ConcurrentOpenLimit: result.ConcurrentOpenLimit, TaskID: taskID, Preexisting: preexisting, downloadCacheHit: true, downloadCacheKey: key}, nil
 	}
-	recordDownloadCache(ctx, "miss")
+	if !preexisting {
+		reason = "forced_refresh"
+	}
+	recordDownloadCache(ctx, "miss", reason)
 	candidate, err := service.fetchDownloadCandidate(ctx, account, target, ua, taskID, preexisting)
 	if err != nil {
 		return candidate, err

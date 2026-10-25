@@ -540,7 +540,7 @@ playbackAccountId + SHA1 + size
    - 已命中：复核非目录和 size 后直接进入第 9 步；这是 playback 预存文件，不属于 Ember 秒传任务，禁止后续自动删除。
    - 未命中：继续创建或复用传输任务。
 4. 以 `playbackAccountId + SHA1 + size` 获取数据库唯一任务和 advisory lock；拿锁后必须再次查询 playback，避免 `HEAD`、预加载、Range 或重连重复秒传。
-5. 锁内仍未命中时，使用 playback Cookie 调用 `InitRapidUpload`，请求的 `TargetParentID` 必须等于该 playback 账号配置的 `targetParentId`：
+5. 锁内仍未命中时，先独立通过转存许可与配额预留，并将本请求任务推进到 `Initializing`；随后按 9.2 取得源前缀 preID，再使用 playback Cookie 调用 `InitRapidUpload`。请求的 `TargetParentID` 必须等于该 playback 账号配置的 `targetParentId`：
    - `status=1`：明确失败，禁止下载并上传完整视频。
    - 初始化结果状态为 `provider_rejected`：结束当前任务，以 `rapid_upload_unavailable` fallback，不据此写账号 `provider_protocol`。这与调用直接返回 `ErrProviderRejected` 是两种输入；后者仍按 §10.2 的操作分类处理。凭证、传输与协议错误也按该表判断账号影响，禁止改用 source 账号播放。
    - `status=7`：校验 challenge Range，使用 source Cookie 调用 `HashFileRange`；把返回 SHA1 作为 `sign_val`，连同原 `sign_key` 再次调用 playback `InitRapidUpload`。首期只接受一次 challenge；第二次仍非 `status=2` 时失败关闭，除非后续真实合同证明可以安全继续。
@@ -567,7 +567,7 @@ playbackAccountId + SHA1 + size
 
 ### 9.1 同设备短期直链缓存（Ember 内部合同）
 
-- Gateway 使用两层进程内缓存：跨播放会话的媒体解析结果缓存位于源路径解析与目标查重之前，命中后跳过这两类 Provider 调用并引用仍有效的最终直链缓存；未命中时执行完整内容校验。账号、套餐及 Redis 租约检查仍实时执行。没有设备/登录上下文的低层 `Resolve` 不缓存。
+- Gateway 使用两层同设备进程内缓存：跨播放会话的媒体解析结果缓存位于源路径解析与目标查重之前，命中后跳过这两类 Provider 调用并引用仍有效的最终直链缓存；未命中时执行完整内容校验。账号、套餐及 Redis 租约检查仍实时执行。没有设备/登录上下文的低层 `Resolve` 不使用本节媒体/直链两层缓存；9.2 的源 preID 成功内容哈希是独立复用层，不包含用户或 playback 授权。
 - 媒体键对 Server、用户、登录映射、设备、原始媒体路径、真实播放器 UA、源和 playback 账号 ID/Provider 身份/干净 active 配置版本/精确凭证/Provider 参数、源挂载前缀/root 和目标目录做长度编码摘要；不含 PlaySessionId，也不按会话过期或 Stopped 清除。媒体条目仅保存源内容 SHA1/size、原播放会话身份和直链缓存引用，最多 1024 条，容量满时淘汰最早到期项。
 - 跨会话媒体新鲜度截止于 `min(本次文件解析开始时间 + 10m, 引用直链缓存的原始截止时间)`；条目最多保留至引用直链原期限。超过新鲜度后，仅实时租约准入确认 active/paused、且 PlaySessionId 与该条目原会话一致时允许继续复用；其他会话、reservation、过期或停止会话必须重新验证文件身份。直链过期或被淘汰同样视为未命中；时钟回退丢弃条目。持续播放允许保留当前已验证文件身份至链接安全截止时间，跨会话仍最多延迟 10 分钟发现外部同路径替换/删除。不得用媒体重新填充延长原直链期限；媒体内容身份只在进程内使用，不输出日志或落库。
 - 缓存键对 Server、用户、登录映射、设备、playback 账号 ID/干净 active 配置版本、凭证及 Provider 参数、目标目录/文件 ID/pickCode/SHA1/size、真实播放器 UA 做长度编码后摘要；不保存原始 Cookie，不含 `PlaySessionId`，不跨设备或登录复用。摘要只在进程内使用，不输出日志。
@@ -576,7 +576,39 @@ playbackAccountId + SHA1 + size
 - 每个请求独立执行 Redis 准入和最终确认；HEAD 无租约仍 fallback，缓存不能绕过停用、冷却、解绑或配额状态。相同用户/登录/设备/媒体路径/UA 的昂贵处理跨 session 串行，获锁后加载账号快照，等待者独立取消。只有完整成功且最终租约确认通过后才发布媒体条目；新转存强制清除旧直链并重新获取。媒体命中返回 `preexisting=true`，不复制旧任务 ID、首次创建标记或转存用量；仍调用既有成功访问采样，不再次消耗转存额度。
 - 账号凭证加载暴露非持久化 `DownloadCacheVersion`：仅干净 active 状态为正数；任一账号冷却探测/错误恢复或未知版本为零时绕过媒体缓存，执行真实文件查询。playback 探测同时绕过直链缓存并实际取链。媒体命中不回写任一账号健康成功；只命中直链缓存时，真实源解析成功仍按原规则采样。
 - 决策日志增加固定 `mediaResolutionCache=hit|miss|bypass`，保留 `downloadURLCache=hit|miss|bypass`。媒体命中不产生 `sourceResolveCalls`、`targetSearchCalls` 或 `downloadURLCalls`；不打印 URL、SHA1 或缓存键。
+- miss/bypass 只输出本次查询可证实的固定原因，hit 不输出原因；诊断不改变缓存 key、容量、TTL、淘汰顺序或准入。原因枚举见下表，`entry_missing` 与 `dependent_url_missing` 不证明是配置变化、容量淘汰或外部文件变化。
+- `mediaCacheEvictions` / `downloadCacheEvictions` 仅在本请求实际触及对应 cache 时输出，是请求收尾时在缓存锁内取得的进程累计容量淘汰快照。过期删除、时钟回退删除、显式移除和强制刷新不计为容量淘汰；数值缺失不等于零。不同请求的快照不得求和，也不能据缺失条目反推淘汰因果；离线摘要只给 `maxObserved`，`intervalDelta` 保持 `unknown`。
 - 自动化只证明 Ember 复用、隔离与门控。Gateway 无法观察 302 后 CDN 提前失效，跨播放 session 的真实客户端复用、CDN 并发/网络切换兼容性和实际延迟收益尚未实测。
+
+| 字段 | 固定原因 |
+| --- | --- |
+| `mediaResolutionCacheReason` | `entry_missing`、`expired`、`clock_rollback`、`freshness_expired`、`dependent_url_missing`、`dependent_url_expired`、`dependent_url_clock_rollback`、`dependent_url_host_rejected`、`key_unavailable`、`cache_unavailable` |
+| `downloadURLCacheReason` | `entry_missing`、`expired`、`clock_rollback`、`host_rejected`、`key_unavailable`、`cache_unavailable`、`forced_refresh` |
+
+`freshness_expired` 指其他会话已越过媒体新鲜度窗口；`dependent_url_*` 仅描述媒体引用的直链在本次读取时的失效。`forced_refresh` 是新转存走既有强制重新取链分支，`key_unavailable/cache_unavailable` 表示无法使用缓存，不猜测更细的配置或身份根因。
+
+### 9.2 preID 成功结果复用（Ember 内部合同）
+
+2026-10-25 用户授权在采集与缓存诊断之后优化重复 preID 读取；实现与本地验证记录见[主计划第 8 节](../plan/architecture/gateway-client-compatibility.md#8-采集缓存诊断与-preid-复用2026-10-25)。本层不改变 115 请求/响应协议，也不据上游持久缓存实现扩大凭据或转存权限。
+
+- 缓存位于 DirectPlay，仅在目标第二次查重未命中、转存许可、配额预留及任务 `Initializing` 之后使用；保存经过 `validateRangeHash` 校验的前至多 128 KiB SHA1 和字节数。challenge 仍实际读取，不命中本缓存。
+- key 使用长度编码摘要绑定 source 账号 ID、Provider UID、正 `DownloadCacheVersion`、精确凭据及 Provider 参数、文件 ID/pickCode/完整 SHA1/Size 和范围；不绑定 playback、用户、设备、会话或播放器 UA，source UA 仍属于 key。当前调用必须先取得有效源文件身份。未知配置版本、恢复探测或不完整身份直接 bypass，不读取、合并或填充缓存。
+- 进程内 LRU 最多 1024 条，成功读取后固定 10 分钟非滑动 TTL；命中只改变容量淘汰顺序，不延长期限。过期惰性删除、时钟回退丢弃，无后台刷新和持久化。值不包含视频字节、URL、明文凭据、任务、配额或健康结果；摘要和哈希不进入日志。9.1 中低层 `Resolve` 的缓存限制只指媒体/直链两层，不用于取消本层独立的已验证内容结果复用。
+- 同键使用现有 requestGate 串行并在获锁后复查。owner 使用原请求上下文，失败或取消不发布，下一个等待者可重试；成功 hash/字节数校验且调用未取消后即可发布并释放 gate，不等待无关目标上传完成。目标后续失败不撤销已证实的内容哈希。
+- 账号、源路径、许可、租约、任务、配额、目标上传及复核仍由每个请求独立执行。缓存不伪造 preID 网络/账号恢复成功；原来真实源路径观察对应的健康回写保持。HEAD 和无新增许可请求不能借缓存跳过门控。
+- `measureStage(preID)` 只包围实际 HashFileRange；hit 不增加 `preIDCalls`，gate 等待单独记 `preIDWaitMs/preIDWaitCalls` 与 Debug `step=preIDWait`。缓存只输出固定 `preIDCache=hit|miss|bypass`，不增加 preID 原因/容量计数字段，也不复制另一请求的 Provider 事件。
+- 验收先对两个用户、两个不同 playback 账号及同 source 文件测基线，再确认 preID 读取从两次降到一次，目标写入、独立任务与配额工作量不变。fake 计数不等于真实命中率或客户端延迟收益。
+
+`preid_reuse_test.go` 已在两个用户、不同个人 playback 目标和同一 source 文件的顺序、重叠请求中取得以下等工作量 fake 对照；只证明该固定场景减少一次实际前缀读取：
+
+| 观测 | 无 preID 复用基线 | 启用复用 |
+| --- | --- | --- |
+| source 解析 / 目标查重 | 2 / 4 | 2 / 4 |
+| preID `HashFileRange` | 2 | 1 |
+| 上传 / 目标复核 / 最终取链 | 2 / 2 / 2 | 2 / 2 / 2 |
+| 独立任务 / 每位用户转存额度 | 2 / 各 1 | 2 / 各 1 |
+
+身份、并发、失败/取消与恢复探测回归，以及全量非数据库 Go 测试、DirectPlay/账号/配额/115 Adapter/Gateway 五包 race、vet/build 和独立审查均已完成。采集工具 39 项离线测试和 Go 日志→Python 摘要串接复验同样通过，具体命令见[测试指南](../runbooks/testing.md)。未部署，未访问真实 Emby、115 或数据库；上述计数不能推导真实缓存命中率、首帧或起播时延收益。本轮不增加图片/字幕缓存、预热、负缓存、连接池调参、Web UI、配置或 migration。
 
 ## 10. 保留、冷却与未来清理
 

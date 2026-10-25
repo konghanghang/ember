@@ -10,7 +10,8 @@ import subprocess
 from analyze_capture import analyze, video_pairs
 from analyze_tls import analyze_tls
 from capture import fetch_logs, private_directory, private_json, run_capture, ssh_command
-from logs import filter_line
+from diagnostic_summary import build_summary
+from logs import filter_record
 
 
 def bounded_integer(minimum, maximum):
@@ -112,22 +113,19 @@ def run_analysis(args):
     result = {"formatVersion": 1, "ports": ports, "httpEvidence": http,
               "tlsConnections": analyze_tls(args.pcap, tls_port=args.tls_port),
               "packetVideoPairs": video_pairs(http["http"])}
+    filtered = []
     if args.logs:
         if args.logs.stat().st_size > 16 * 1024 * 1024:
             raise ValueError("log_json_too_large")
         rows = json.loads(args.logs.read_text(encoding="utf-8"))
         if not isinstance(rows, list) or len(rows) > 20000:
             raise ValueError("invalid_log_json")
-        filtered = []
         for row in rows:
-            if not isinstance(row, dict):
-                continue
-            line = str(row.get("dockerTimestamp", "")) + " " + " ".join(
-                f"{key}={json.dumps(str(value))}" for key, value in row.items() if key != "dockerTimestamp")
-            safe = filter_line(line)
+            safe = filter_record(row)
             if safe:
                 filtered.append(safe)
         result["gatewayDiagnostics"] = filtered
+    result["diagnosticSummary"] = build_summary(http["http"], filtered)
     path = directory / (args.pcap.stem + ".analysis.json")
     private_json(path, result)
     print(json.dumps({"analysisPath": str(path), "httpEvents": len(http["http"]),
