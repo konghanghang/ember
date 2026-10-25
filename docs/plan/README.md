@@ -39,7 +39,7 @@
 - [自助注册人数上限](./access-auth/registration-user-capacity.md)（待开发）
 - [分组观看保号](./billing-redemption/watch-activity-renewal.md)（实现、专用 PostgreSQL 与管理员页面验收完成；10 月 18 日起点修复已落地，10 月 23 日有包含该修复的历史部署记录；用户端页面、真实考核与权限同步仍待验收）
 - [Emby–115 DirectPlay 总计划](./architecture/emby-115-direct-play-gateway.md)（播放数据面主体完成，单 Gateway 运维功能与部分真实取证待完成）
-- [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（协议、诊断、preID 与持续自动化本地完成；承接起播许可和 SenPlayer 分项验收，远端 CI、真实客户端与性能收益待验证；默认严格，兼容模式由管理员开启）
+- [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（本地与远端 CI 已通过，e78d8f80 已部署 hz 并完成四容器健康及稳定性检查；承接起播许可和 SenPlayer 分项验收，真实客户端与性能收益仍待验证；转存策略保持默认严格）
 - [运行期配置缓存演进](./architecture/runtime-settings-cache-evolution.md)（观察期，尚未排期；没有实证不替换）
 - [Telegram 通知静音规则](./bot-telegram/notification-mute-rules.md)（待开发；已有结果通知不等于静音治理）
 - [群签到与双途径保号](./bot-telegram/group-checkin-retention.md)（产品规则已确认，整体待实施；正文已同步 10 月 18 日观看保号起点边界，首次日期持久化、签到、迁移与双条件考核尚未实现）

@@ -1,6 +1,6 @@
 # Gateway 客户端兼容与首次转存策略方案
 
-> 状态：协议兼容、诊断、preID 优化与持续自动化已完成本地验证；首次 CI 的 runner 问题已修补，待远端复验及真实客户端/性能验收
+> 状态：本地验证、远端 CI 与 hz 部署完成，待真实客户端及性能验收
 > 负责人：Ember
 > 更新时间：2026-10-25
 
@@ -8,9 +8,9 @@
 
 用户确认 Infuse 当前正常，Yamby 登录已恢复但首页图片无法加载，SenPlayer 能登录和播放却不新增 115 转存。代码调查发现图片与网页开关耦合、会话路径大小写漏处理、固定会话续播缺少证明重新核验，以及严格起播策略与已记录 SenPlayer 请求形态不匹配。
 
-2026-10-25 用户确认采用三批次方案并授权实施：先修图片和会话，再完善续播，最后增加管理员可开启的全局兼容模式；默认保持严格模式，并接受兼容模式开启后包括 Infuse 在内的预读也可能产生转存。三个批次已在 `master` 完成实现和本地验证；本次业务实现尚未部署，真实客户端验收未执行。
+2026-10-25 用户确认采用三批次方案并授权实施：先修图片和会话，再完善续播，最后增加管理员可开启的全局兼容模式；默认保持严格模式，并接受兼容模式开启后包括 Infuse 在内的预读也可能产生转存。三个批次已在 `master` 完成实现和本地验证，随后随 `e78d8f80` 完成 hz 部署；真实客户端验收未执行，部署记录见第 10 节。
 
-首轮实现已提交为 `30fb9a4d75dfb2d7371f55c39d967a42e72b82d9`。随后用户授权继续按顺序补认证协议与回归矩阵，再扩展有合同依据的视频首请求补查；这部分已完成实现和本地验证，见后述“后续协议兼容改进”。首轮及后续增量均未部署或进行本轮真实客户端验收。
+首轮实现已提交为 `30fb9a4d75dfb2d7371f55c39d967a42e72b82d9`。随后用户授权继续按顺序补认证协议与回归矩阵，再扩展有合同依据的视频首请求补查；这部分已完成实现和本地验证，见后述“后续协议兼容改进”。首轮及后续增量已随第 10 节目标镜像部署，尚未取得本轮真实客户端分项结果。
 
 ## 目标
 
@@ -94,7 +94,8 @@
 - [x] 完成批次 3 配置、运行装配、锁内策略与日志归因，设置中心复用既有枚举控件。
 - [x] 完成本地测试和独立代码审查；发现的旧 plain 补查覆盖新会话别名问题已先补失败回归再修复，复核后无剩余 P0/P1/P2。
 - [x] 同步现行合同、架构、配置、客户端矩阵和排障入口。
-- [ ] 经授权部署并完成真实客户端分项验收；未满足归档条件，继续保留计划。
+- [x] 经授权将 e78d8f80 部署到 hz，四容器 revision/健康及稳定性检查完成。
+- [ ] 完成真实客户端分项验收；部署健康不等于播放验收，继续保留计划。
 
 | 批次 | 启动依赖 | 完成与验收条件 | 本批次归档条件 |
 | --- | --- | --- | --- |
@@ -118,7 +119,7 @@
 - [x] 完成协议请求矩阵并验证现有代理边界；多源选择/实际视频 UA、条件 Range/HEAD、非加速媒体与拒绝透传的定向测试通过。
 - [x] 核对扩展名首请求合同，9 个关键场景先失败后通过；新增五组行为测试及旧补查/原文件/许可/固定会话/发布取消定向回归通过。
 - [x] 完成 Gateway/DirectPlay/embytoken 三包 race、全量非数据库测试、vet/build、独立代码审查及现行文档同步；本轮增量未发现未收口代码问题，CORS 等明确排除的已有边界不视为已解决。
-- [ ] 经授权部署后按客户端和版本执行真实验收；在此之前保持未验收边界。
+- [ ] 按实际部署提交、客户端和版本执行真实验收；目前仍保持未验收边界。
 
 验证版本为 `master@30fb9a4d75dfb2d7371f55c39d967a42e72b82d9` 加本轮后续增量。`go test ./... -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go test -race ./internal/playbackgateway ./internal/services/directplay ./internal/services/embytoken -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go vet ./...` 和 `go build ./...` 均通过。新增测试使用合成 fixture、进程内 Transport/Recorder，不代表任何新增客户端版本已实机验收；本次无配置、模型或 schema 变更，不新增 migration，也未重新执行未变更的 Web/Bot 验证。
 
@@ -140,9 +141,9 @@ preID 查询仍位于目标双查、转存许可、配额预留及任务开始�
 - [x] 缓存原因及容量快照七组红绿测试通过，DirectPlay 非集成全包/race/vet/build 通过，原命中/失效和 Debug 事件行为保持。
 - [x] 两个个人目标的等工作量 preID 基线与优化后读取次数验证通过；顺序和真实 gate 等待的重叠场景均由两次降为一次，源解析 2、目标查重 4、上传/目标复核/取链各 2、独立任务 2、每用户配额 1 保持。缓存/取消/恢复探测/门控/配额/任务隔离及同范围 challenge 实读回归通过。
 - [x] 全量非数据库测试、相关五包 race、vet/build、离线 Python 测试和独立代码审查通过；现行文档同步完成，Go 实际 LogFields 经 Python 过滤及摘要的跨语言复验通过。
-- [ ] 经授权部署后衡量真实命中率与准备耗时；不据 fake 调用次数宣称首帧或起播时延改善。
+- [ ] 在已部署版本上按授权衡量真实命中率与准备耗时；不据 fake 调用次数或容器健康宣称首帧改善。
 
-验证基线为 `master@8799688ac555e91ba584bfe4c3ee41dc8de9bcb4` 加本节增量。在 `services/api` 执行 `go test ./... -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go test -race ./internal/services/directplay ./internal/services/p115account ./internal/services/p115quota ./internal/integrations/p115 ./internal/playbackgateway -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go vet ./...`、`go build ./...` 均通过；Python 使用合成报文/日志和 mocked SSH。没有启动项目服务或连接真实 Emby/115/数据库，未部署或取得实际客户端性能数据。
+验证基线为 `master@8799688ac555e91ba584bfe4c3ee41dc8de9bcb4` 加本节增量。在 `services/api` 执行 `go test ./... -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go test -race ./internal/services/directplay ./internal/services/p115account ./internal/services/p115quota ./internal/integrations/p115 ./internal/playbackgateway -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go vet ./...`、`go build ./...` 均通过；Python 使用合成报文/日志和 mocked SSH。该批本地验证没有启动项目服务或连接真实 Emby/115/数据库，也没有部署或取得实际客户端性能数据；后续部署结果见第 10 节。
 
 ### 9. 持续自动化检查（2026-10-25）
 
@@ -157,13 +158,21 @@ preID 查询仍位于目标双查、转存许可、配额预留及任务开始�
 - [x] 完成三个 runner、CI job 的触发与汇总配置，以及统一 Makefile/报告入口；`make test` 复用原 API 全包 race，不重复五包专项。
 - [x] 完成 Go producer/Python consumer 合同及异常、脱敏、关联边界回归；Go stdout/stderr 分开保存，依赖下载提示不混入 JSON。
 - [x] 完成本地专项、入口失败传播、配置一致性验证与两轮独立审查，同步测试指南、架构与计划索引。
-- [ ] 修正采集矩阵的 runner 后补齐 Python 3.9 实跑，并确认整条 GitHub workflow 通过；首次 CI 失败记录见下文。
+- [x] 修正采集矩阵 runner 后，Python 3.9 已实际执行并通过，整条 Test 工作流通过；首次失败记录保留如下。
 
 验证基线为 `master@3e1cd42c528bea8a14a0c41329c31f17d86aab18` 加本节增量。实际执行三个新增 runner：Python 3.9.6/3.11.15 各通过 39 项采集测试和 20 项 runner/校验器测试；Go 1.24.13 五包 race 通过；Go→Python 合同通过 3 个 timing 场景、31 个字段、4 个 Gateway 场景及 6 类会话冲突。两个新增 Go 测试所在包的 `go vet`、shell 语法、Makefile dry-run、YAML 结构/路径检查、汇总状态模拟及文档链接检查通过，独立审查未发现剩余 P0/P1/P2/P3。本地使用已有 Go/Python 与临时编译缓存，关闭 Go 模块下载；未执行旧完整 API/Web/Bot 入口，未启动项目服务或连接真实业务依赖。该次本地验证未执行 GitHub 工作流、部署或真实播放；首次远端结果另记如下。
 
-2026-10-25 首次远端 [Test 工作流 40187234649](https://github.com/konghanghang/ember/actions/runs/40187234649) 对应 `95269111`：API、Web、Bot、Python 3.11 采集、五包 race 和跨语言契约均成功；Python 3.9 在 Setup Python 阶段失败，原因是 Ubuntu 26.04 没有匹配构建，工具测试未执行，随后缺少 artifact 为连带结果。采集矩阵已修复为固定 Ubuntu 24.04，保留 3.9/3.11 覆盖；该修复尚未取得远端复验结果，不能把工作流整体记为通过。
+2026-10-25 首次远端 [Test 工作流 40187234649](https://github.com/konghanghang/ember/actions/runs/40187234649) 对应 `95269111`：API、Web、Bot、Python 3.11 采集、五包 race 和跨语言契约均成功；Python 3.9 在 Setup Python 阶段失败，原因是 Ubuntu 26.04 没有匹配构建，工具测试未执行，随后缺少 artifact 为连带结果。采集矩阵已修复为固定 Ubuntu 24.04，保留 3.9/3.11 覆盖；修复提交 e78d8f80 的后续复验已全部通过，见第 10 节；首次运行本身仍记为失败。
 
 本节随主计划保留；完成本地自动化不替代部署、真实客户端与性能验收，也不触发多实例实现或自动外部验证。
+
+### 10. CI 复验与 hz 部署（2026-10-25）
+
+- 目标提交为 `e78d8f8058bc6708465606093c03af81d7fcb017`。[Test 40188457875](https://github.com/konghanghang/ember/actions/runs/40188457875) 全部通过，包含实际执行的 Python 3.9/3.11、API、Web、Bot、五包 race 和日志契约；随后 master 快进合入 pre_release 并推送。[API](https://github.com/konghanghang/ember/actions/runs/40188866570)、[Web](https://github.com/konghanghang/ember/actions/runs/40188866545)、[Bot](https://github.com/konghanghang/ember/actions/runs/40188866534) 三个镜像工作流均以同一 SHA 成功完成。
+- 经 `local → dmit → hz` 更新 `hz-fsn` 的四个应用容器，实际 Compose 入口为 `/usr/local/program/ember/docker-compose.yaml`；拉取后的镜像 OCI revision 与目标 SHA 一致，版本为 `preview-e78d8f8`。从当时运行的 `b1f524f5` 到目标提交，没有 SQL、数据模型或 Compose 配置变更；未改生产配置或执行人工数据库写入。
+- API、Gateway、Web、Bot 均运行目标镜像且健康。首次 Compose 等待因 Bot unhealthy 返回失败，日志出现 polling 租约占用提示；容器自动重试后恢复，当前进程已启动 polling。只读事务核对租约有效、owner 与当前 Bot 启动记录匹配，后续检查确认更新时间推进。
+- 在 11:45:24–11:49:24 UTC 的 4 分钟观察窗口内，容器 ID、启动时间和重启次数保持不变，四容器健康；当时重启次数分别为 API 0、Gateway 0、Web 1、Bot 10。Gateway 启动日志确认本次执行 0 份 SQL；API 迁移执行计数未取得日志证据。
+- 只读检查确认 `P115_TRANSFER_TRIGGER_MODE` 没有数据库记录，按现行合同使用默认 `strict`，没有开启兼容模式。本次只完成部署和运行健康核对，Yamby 首页图片、SenPlayer 首次/复用转存、Infuse 回归、CDN/字幕、个人账号/Redis 故障路径及真实性能收益仍未实测，下面承接清单继续保留未验收状态。
 
 ## 历史计划验收承接
 
