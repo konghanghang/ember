@@ -285,7 +285,8 @@ jobs:
 
   test-gateway-capture:
     name: Test Gateway capture (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # Python 3.9 has no Ubuntu 26.04 build in actions/python-versions.
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.gateway_capture == 'true'
     strategy:

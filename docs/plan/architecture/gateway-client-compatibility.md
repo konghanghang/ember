@@ -1,6 +1,6 @@
 # Gateway 客户端兼容与首次转存策略方案
 
-> 状态：协议兼容、诊断、preID 优化与持续自动化已完成本地验证，待远端 CI、真实客户端及性能验收
+> 状态：协议兼容、诊断、preID 优化与持续自动化已完成本地验证；首次 CI 的 runner 问题已修补，待远端复验及真实客户端/性能验收
 > 负责人：Ember
 > 更新时间：2026-10-25
 
@@ -157,9 +157,11 @@ preID 查询仍位于目标双查、转存许可、配额预留及任务开始�
 - [x] 完成三个 runner、CI job 的触发与汇总配置，以及统一 Makefile/报告入口；`make test` 复用原 API 全包 race，不重复五包专项。
 - [x] 完成 Go producer/Python consumer 合同及异常、脱敏、关联边界回归；Go stdout/stderr 分开保存，依赖下载提示不混入 JSON。
 - [x] 完成本地专项、入口失败传播、配置一致性验证与两轮独立审查，同步测试指南、架构与计划索引。
-- [ ] 推送后核对 GitHub 实际 job 执行结果；本地脚本通过不等于远端 workflow 已运行。
+- [ ] 修正采集矩阵的 runner 后补齐 Python 3.9 实跑，并确认整条 GitHub workflow 通过；首次 CI 失败记录见下文。
 
-验证基线为 `master@3e1cd42c528bea8a14a0c41329c31f17d86aab18` 加本节增量。实际执行三个新增 runner：Python 3.9.6/3.11.15 各通过 39 项采集测试和 20 项 runner/校验器测试；Go 1.24.13 五包 race 通过；Go→Python 合同通过 3 个 timing 场景、31 个字段、4 个 Gateway 场景及 6 类会话冲突。两个新增 Go 测试所在包的 `go vet`、shell 语法、Makefile dry-run、YAML 结构/路径检查、汇总状态模拟及文档链接检查通过，独立审查未发现剩余 P0/P1/P2/P3。本地使用已有 Go/Python 与临时编译缓存，关闭 Go 模块下载；未执行旧完整 API/Web/Bot 入口，未启动项目服务或连接真实业务依赖。GitHub 运行、部署及真实播放尚未执行。
+验证基线为 `master@3e1cd42c528bea8a14a0c41329c31f17d86aab18` 加本节增量。实际执行三个新增 runner：Python 3.9.6/3.11.15 各通过 39 项采集测试和 20 项 runner/校验器测试；Go 1.24.13 五包 race 通过；Go→Python 合同通过 3 个 timing 场景、31 个字段、4 个 Gateway 场景及 6 类会话冲突。两个新增 Go 测试所在包的 `go vet`、shell 语法、Makefile dry-run、YAML 结构/路径检查、汇总状态模拟及文档链接检查通过，独立审查未发现剩余 P0/P1/P2/P3。本地使用已有 Go/Python 与临时编译缓存，关闭 Go 模块下载；未执行旧完整 API/Web/Bot 入口，未启动项目服务或连接真实业务依赖。该次本地验证未执行 GitHub 工作流、部署或真实播放；首次远端结果另记如下。
+
+2026-10-25 首次远端 [Test 工作流 40187234649](https://github.com/konghanghang/ember/actions/runs/40187234649) 对应 `95269111`：API、Web、Bot、Python 3.11 采集、五包 race 和跨语言契约均成功；Python 3.9 在 Setup Python 阶段失败，原因是 Ubuntu 26.04 没有匹配构建，工具测试未执行，随后缺少 artifact 为连带结果。采集矩阵已修复为固定 Ubuntu 24.04，保留 3.9/3.11 覆盖；该修复尚未取得远端复验结果，不能把工作流整体记为通过。
 
 本节随主计划保留；完成本地自动化不替代部署、真实客户端与性能验收，也不触发多实例实现或自动外部验证。
 

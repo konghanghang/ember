@@ -186,11 +186,13 @@ make test-gateway-contract
 
 | 入口 | 检查范围 | CI 运行环境 |
 | --- | --- | --- |
-| `scripts/test/gateway-capture.sh` | 采集工具离线测试，以及专项 runner/契约校验器自身的受控测试 | Python 3.9、3.11 两个独立矩阵项，显式 `PYTHON=python` |
+| `scripts/test/gateway-capture.sh` | 采集工具离线测试，以及专项 runner/契约校验器自身的受控测试 | 固定 Ubuntu 24.04，Python 3.9、3.11 两个独立矩阵项，显式 `PYTHON=python` |
 | `scripts/test/gateway-race.sh` | Gateway、DirectPlay、115 账号、配额与 Provider 五包；`-race -skip 'Integration\|PostgreSQL' -count=1 -timeout=180s` | Go 1.24.13，无数据库服务 |
 | `scripts/test/gateway-contract.sh` | Go 实际诊断日志经过 Python 过滤与摘要，锁定字段、原因、脱敏、缓存快照及可信会话关联 | Go 1.24.13 + Python 3.11，无数据库服务 |
 
 专项使用 fake/mock，不启动项目服务，不读取 `.env`，Go 入口清空 `EMBER_INTEGRATION_DATABASE_URL`。Python 入口默认使用 `python3`；需要指定已有解释器时设置 `PYTHON=/path/to/python`，无效显式值直接失败。普通 Go 包测试仍不依赖 Python，`scripts/gateway-capture/` 的独立复制运行仍不依赖 Go。
+
+采集矩阵固定 runner 是为了保留 Python 3.9 覆盖：2026-10-25 首次 CI 的 `ubuntu-latest` 已解析为 Ubuntu 26.04，`setup-python` 在安装 3.9 时失败，测试尚未执行。官方 [Python 版本清单](https://github.com/actions/python-versions/blob/main/versions-manifest.json) 提供 3.9.25 的 Ubuntu 22.04/24.04 x64 构建，没有 26.04 构建。后续调整 runner 时必须同时核对最低 Python 版本的可用构建，不能通过删除低版本矩阵绕过失败。
 
 结果默认写入 `artifacts/test-results/gateway-capture/`、`gateway-race/` 和 `gateway-contract/`，保留固定日志及 `meta.json`。可设置 `GATEWAY_TEST_RESULTS_ROOT` 指向其他结果根目录；仅覆盖对应专项的固定输出文件，不清空其他内容。失败返回非零且 meta 记录失败，不能把旧日志或缺失的 producer 输出当作本次成功。
 

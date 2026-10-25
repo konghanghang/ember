@@ -119,7 +119,7 @@
 | [运行期配置缓存演进](../plan/architecture/runtime-settings-cache-evolution.md) | 观察期 | 未取得替换启动条件实证，未提升最低 Go 语言版本；5s 专用策略已有修补不等于通用刷新演进完成 | 无实证不替换，继续观察 |
 | [Telegram 通知静音规则](../plan/bot-telegram/notification-mute-rules.md) | 待开发 | 已有订阅结果通知，但没有事件规则、用户偏好和统一静音入口 | 继续保留实施计划 |
 | [群签到与双途径保号](../plan/bot-telegram/group-checkin-retention.md) | 规则已确认，待实施 | 已同步10/18起点边界；签到、首次日期持久化、迁移及双条件考核仍未实现 | 保留实施计划，不能把前置修复算成签到完成 |
-| [Gateway 客户端兼容与转存策略](../plan/architecture/gateway-client-compatibility.md) | 本地实施完成，待远端 CI 与真实验收 | 30fb9a4/8799688/3e1cd42/33eb11f 已提交并完成各自本地验证；新增镜像部署、客户端、命中率与准备耗时待验证 | 承接旧专项取证，按单 Gateway 完成授权范围内验收 |
+| [Gateway 客户端兼容与转存策略](../plan/architecture/gateway-client-compatibility.md) | 本地实施完成，CI 修复待复验及真实验收 | 首次远端 CI 的 API/Web/Bot、Python 3.11、race/日志合同通过；Python 3.9 的 Ubuntu 26.04 构建缺失已改固定24.04，待复验；部署、客户端和性能待验证 | 承接旧专项取证，按单 Gateway 完成授权范围内验收 |
 | [设备风控自动化](../plan/console-admin/device-risk-automation.md) | 待开发 | 已有人工设备处置，未发现风险记录、自动判定和告警闭环 | 继续保留实施计划 |
 | [站内通知中心](../plan/console-admin/in-app-notification-center.md) | 待开发 | 已有 Telegram 消息引用表不等于站内通知，未读/已读 API 与页面未实现 | 继续保留实施计划 |
 | [媒体去重与质量治理](../plan/media-subscription/media-dedupe-and-quality-governance.md) | 待开发 | 已有质量报告，未发现重复版本组、评分、保留建议和忽略能力 | 继续保留实施计划 |
@@ -235,7 +235,7 @@
 
 截至 2026-10-25，`docs/plan/` 共 10 份现行实施稿：3 份推进实现或验收、6 份待开发、1 份观察期；逐项状态见 B 节，四份本轮归档见 C 节。实施归档不删除未完成验收，所有待办已有现行承接位置。
 
-10 月 23 日历史部署记录确认 hz 四个应用容器的镜像 revision 为 `b1f524f5a81b5507d505b272b96355c82ce7da38`；本轮本地 Git 祖先核对确认其包含套餐迁组、观看保号起点修复与 SenPlayer MKV 适配。这是历史部署事实，不是本轮线上版本或业务验收；10 月 25 日新增 Gateway 兼容、优化与 CI 仍只有本地证据。
+10 月 23 日历史部署记录确认 hz 四个应用容器的镜像 revision 为 `b1f524f5a81b5507d505b272b96355c82ce7da38`；本轮本地 Git 祖先核对确认其包含套餐迁组、观看保号起点修复与 SenPlayer MKV 适配。这是历史部署事实，不是本轮线上版本或业务验收；10 月 25 日首次 [CI 40187234649](https://github.com/konghanghang/ember/actions/runs/40187234649) 对应 95269111，除 Python 3.9 在安装环境阶段失败外其余测试 job 成功；runner 修复待远端复验，最新增量仍无部署和真实客户端证据。
 
 当前剩余事项：
 
