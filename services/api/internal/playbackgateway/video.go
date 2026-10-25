@@ -94,7 +94,7 @@ func (gateway *Gateway) serveVideo(
 	fallbackSource := onDemandFallbackSourceClient
 	playbackInfoResolved := false
 	resolvedMediaPath := ""
-	if itemID, mediaSourceID, eligible := onDemandPlaybackInfoCandidate(request); eligible {
+	if itemID, mediaSourceID, eligible := onDemandPlaybackInfoCandidate(request, principal); eligible {
 		clientRequest := request
 		resolveStarted := time.Now()
 		gateway.debugf("[PlaybackGateway] level=debug code=playback_info_started requestId=%s itemId=%q", diagnosticRequestID(request.Context()), itemID)
@@ -103,7 +103,9 @@ func (gateway *Gateway) serveVideo(
 		if reasonCode == "" {
 			resolvedMediaPath = resolved.MediaSource.MediaPath
 			request, playbackInfoResolved = augmentVideoRequestWithPlaybackInfo(request, resolved)
-			if playbackInfoResolved {
+			// Only the observed plain-stream contract repairs Emby's fallback
+			// URL. New stream-first shapes must retain the exact client request.
+			if playbackInfoResolved && strings.EqualFold(videoPath(clientRequest.URL).StreamFileName, "stream") {
 				fallbackRequest, fallbackSource = buildOnDemandEmbyFallbackRequest(
 					clientRequest,
 					request,

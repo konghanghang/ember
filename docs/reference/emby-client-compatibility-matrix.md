@@ -33,11 +33,12 @@
 | `X-Emby-Token` query | key 大小写不敏感 | 接受唯一非空值 |
 | `X-MediaBrowser-Token` query | key 大小写不敏感 | 接受唯一非空值 |
 | `AccessToken` query | key 大小写不敏感 | 接受唯一非空值 |
-| `Authorization` / `X-Emby-Authorization` / `X-MediaBrowser-Authorization` | 有界 `Emby ... Token="..."` 或 `MediaBrowser ... Token="..."` grammar | 读取唯一 Token，不要求完整应用元数据；上游仍决定原生认证是否有效 |
+| `Authorization` / `X-Emby-Authorization` / `X-MediaBrowser-Authorization` | 有界 `Emby ... Token="..."` 或 `MediaBrowser ... Token="..."` grammar，scheme 大小写不敏感 | 读取唯一 Token，不要求完整应用元数据；上游仍决定原生认证是否有效 |
 | 任意 Bearer、Quick Connect、PIN、插件 Token | 无版本化合同 | 不接受 |
 
 同一请求出现多个非空候选时，只有所有字节完全一致才接受；重复身份来源、空直接 Token、冲突、未知 scheme、非法 quoted-string 均返回 `401`；非身份元数据缺失、空值、扩展和重复不触发拒绝。Gateway 使用唯一候选执行 HMAC 映射和用户状态检查，原始 Header/query 不改写并继续透明转发。
 
+- scheme 的大小写语义依据 [RFC 9110 §11.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-11.1)；仅比较 `Emby` / `MediaBrowser` 时忽略大小写，Token 值仍逐字节区分大小写，字段 grammar、长度、重复和冲突保护保持。诊断使用同一识别规则，只记录固定分类，不记录 Header 原值。
 - 精确 `AuthenticateByName` 请求由 Emby 判定，不再因元数据解析失败、多个元数据载体或旧 Token 在 Gateway 返回登录 `401`。上游成功响应才建立本地映射，元数据旁路失败仅记固定 Debug 原因。
 - Public users/无 Index 用户头像无 Token 时直接转发，由 Emby 决定响应；携 Token 时继续校验映射、撤销和用户资格。公开范围不扩展到其他用户接口。
 - 元数据采集与 Token 判定分离，完整应用头只作为可选审计 fallback。原生请求 grammar 不可解析、多个应用头或冲突身份仍不能绕过本地 Token 门控。
@@ -59,8 +60,10 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 
 - 普通 API、图片、字幕、会话和未知受保护 Surface 默认走同一个透明代理。
 - AuthenticationResult 支持 JSON/XML，PlaybackInfo 保留 JSON 旁路；两者只对有界旁路副本按 `identity/gzip/deflate/br` 解码，客户端收到的状态、Content-Encoding、Header 和原始字节不重新编码。目标 Infuse 已确认 deflate，目标 Emby Web `4.9.3.0` 已确认 Brotli 登录响应。
-- 层级精确的用户条目响应同样保持原字节，只缓存当前 mapping 下的 Item/MediaSource Container。plain `/Videos/{Id}/stream` 缺 PlaySessionId 时，Gateway 优先使用当前用户 Token 向同一 Emby 补取 PlaybackInfo；成功后分离 115 决策请求与 Emby fallback，后者使用严格验证并移除 URL Token 的 DirectStreamUrl，缺失时使用 `stream.{Container}`。
-- 因此 `MediaStreams: []` 等空数组不会被 `omitempty` 丢失；这是 MediaWarp 源码标注的 [Yamby 兼容点](https://github.com/AkimioJR/MediaWarp/blob/070ad99cb32e940b2b8ccb7c55b6efb7d311eac5/internal/service/emby/schema.go#L224-L233)。
+- 层级精确的用户条目响应同样保持原字节，只缓存当前 mapping 下的 Item/MediaSource Container。合格 GET/HEAD 在显式 `Static=true`、唯一非空 MediaSourceId 且完全无 PlaySessionId key 时，可使用当前用户 Token 向同一 Emby 补取 PlaybackInfo。除旧 plain stream 外，新增 `stream.{Container}` 与固定 `original.mp4/mkv`；新增形态只许身份 Token、MediaSourceId、Static、Container 及可选唯一匹配 Principal 的 DeviceId，容器须单一合法且不是 manifest，stream 的额外 Container 必须一致，original 必须显式带同扩展名 Container。完整条件见[播放合同 4.5](./emby-playback-proxy-contract.md#45-缺失-playsessionid-的按需-playbackinfo)。
+- 无会话补查分离 115 决策与 Emby fallback：旧 plain stream 继续使用严格验证并移除 URL Token 的 DirectStreamUrl，缺失时使用 `stream.{Container}`；新增扩展名 stream / 固定 original 无论补查还是 DirectPlay 失败，都保留客户端原 URL、RawQuery、Range 和 Header。无 Static 的 original 缺会话、缺源、多源歧义与未知参数继续回源；固定会话无 proof/live binding 也不借此补查。
+- PlaybackInfo 的多 MediaSources、音轨/字幕、空数组与未知字段均保留原响应字节，内部按明确 MediaSourceId 选源，不默认使用第一个源。`MediaStreams: []` 不会被 `omitempty` 丢失；这是 MediaWarp 源码标注的 [Yamby 兼容点](https://github.com/AkimioJR/MediaWarp/blob/070ad99cb32e940b2b8ccb7c55b6efb7d311eac5/internal/service/emby/schema.go#L224-L233)。
+- 普通视频 fallback 保留 Range / If-Range 与上游 200/206/416、ETag、Last-Modified、Content-Range 和 HEAD 无正文语义；实际视频请求的 UA 传入 DirectPlay，不借用前序 PlaybackInfo 的 UA。普通字幕、HLS、Audio、Download 和 Sync 仍是受保护透传；Audio/Sync 只证明通用代理能力，Download 只证明上游授权/拒绝响应保持，不宣称新增套餐下载权益。
 - 日志识别 Infuse Direct/Library、SenPlayer、Yamby、VidHub、Fileball、Conflux 和官方 Emby family；未知 UA 仍代理，不因名称进入不同认证或播放逻辑。
 - 默认严格模式仍要求明确起播才能首次转存；管理员选择全局 `P115_TRANSFER_TRIGGER_MODE=compatible` 后，合格原文件 GET 可按独立策略准入，接受包含 Infuse 在内的预读副作用，HEAD 禁止新增转存。固定会话 proof 过期后，仅已成功准入且由真实租约事件续活的媒体/session binding 可重新核验；不延长旧证明、不重授严格许可。
 
@@ -103,6 +106,12 @@ go build ./...
 - 以上证明本地重新输入密码后登录恢复；客户端此前为何生成空字段尚未证实，不能直接归因于缓存。该结果不代替 hz 入口复测，也不扩展为实际播放验收。
 
 诊断只记录固定字段状态，不记录用户名、密码、字段长度或摘要；mock 回归、Gateway race、Go vet/build 已通过，外部请求由用户在现有本地进程上发起。
+
+### 3.3 2026-10-25 后续协议兼容增量
+
+首轮三批次实现基线为 `master@30fb9a4d`。后续增量包括三种应用头的 scheme 大小写、复杂 PlaybackInfo/多媒体源、视频 UA、条件 Range、非加速接口透明代理，以及 2.3 中有合同依据的无会话首请求补查。`authorization_scheme_test.go`、`client_protocol_regression_test.go`、`stream_first_test.go` 的定向回归和既有补查/原文件/许可/固定会话回归通过；随后全量非数据库 Go 测试、Gateway/DirectPlay/EmbyToken race、vet/build 与独立代码审查完成，详细结果见[主计划第 7 节](../plan/architecture/gateway-client-compatibility.md#7-后续协议兼容改进2026-10-25)。这些结果属于本地自动化验证。
+
+本轮未增加 Web UI、配置、数据库 migration 或 CORS 支持；跨域 Web、115 音频/下载加速、云端 HLS 和字幕转换保持独立后续范围。以上不是新一轮实机验收，表中的历史客户端证据不据此升级；仍须记录实际部署提交、Emby/客户端版本、平台，以及登录、选源、字幕、拖动/续播和停止的分项结果。
 
 ## 4. Infuse 扫库与 Token Store
 

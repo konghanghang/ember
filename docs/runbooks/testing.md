@@ -61,6 +61,21 @@ go test -race ./internal/config ./internal/playbackgateway ./internal/services/d
 
 设置中心在 `services/web` 执行 `npm run test -- src/views/admin/SettingsView.spec.ts` 和 `npm run build`；采集日志在仓库根执行 `python3 -B -m unittest discover -s scripts/gateway-capture/tests -v`，必须覆盖归因枚举和新诊断 code 的脱敏边界。以上验证不启动服务，也不代替 Yamby/SenPlayer/Infuse 真实客户端验收。
 
+后续协议兼容增量在 `services/api` 执行：
+
+```bash
+go test ./internal/playbackgateway -run '^TestGateway(ApplicationAuthorizationScheme|ClientProtocol|StreamFirst)' -count=1 -timeout=120s
+go test -race ./internal/playbackgateway -run '^TestGateway(ApplicationAuthorizationScheme|ClientProtocol|StreamFirst)' -count=1 -timeout=120s
+```
+
+- `authorization_scheme_test.go` 覆盖三种应用头中的 Emby/MediaBrowser 标准、小写与混合大小写 scheme、Token 大小写保真、重复/冲突、非法 grammar 和日志脱敏；只改变 scheme 识别，不扩展 Token 或认证语法。
+- `client_protocol_regression_test.go` 覆盖复杂多 MediaSources 按 ID 选择、音轨/字幕/空数组/未知字段原字节保持、实际视频 UA、Range/If-Range 的 200/206/416 与 HEAD，以及普通字幕/HLS/Audio/Download/Sync 的受保护透传和上游拒绝。Audio/Sync 只证明通用代理，Download 不证明新增套餐下载权益。
+- `stream_first_test.go` 覆盖显式 Static、唯一媒体源且完全无会话的扩展名 stream / 固定 original；original 必须显式带同扩展名 Container，stream 的可选 Container 必须一致，DeviceId 唯一且匹配 Principal。检查未知/选流参数、缺 Static/源、空会话 key、固定会话冷 proof、重复身份参数、manifest、歧义/错配、补查和 DirectPlay 失败时原 URL/RawQuery/Range/Header 保持，以及 strict/compatible、HEAD 禁新增、Size=0、取消等待与发布隔离。
+
+随后复用前述 Gateway/DirectPlay/配额专项覆盖固定会话 live binding、旧 plain stream 权威 fallback、停止、许可和租约回归，再执行 `go test ./... -skip 'Integration|PostgreSQL' -count=1`、`go vet ./...` 与 `go build ./...`。本增量不新增 Web UI、配置或 migration，也不实施 CORS；测试不得启动服务或请求真实 Emby、115、Redis、数据库。最终执行结果记录在[主计划第 7 节](../plan/architecture/gateway-client-compatibility.md#7-后续协议兼容改进2026-10-25)，不能用定向通过替代整体验证。
+
+真实验收仍须经授权部署后按客户端与版本记录登录、选源、首播/复用、拖动/续播、字幕、停止及 CDN Range 的分项结果；fake 响应、Gateway `302/206`、上游会话 `204` 不证明首帧或完整播放。既有 Infuse/SenPlayer 样本只覆盖当时版本与请求形态。
+
 2026-09-16 上述两种范围均通过。新增回归覆盖独立 locker 在真实 `database/sql` 小连接池上的 fake 锁竞争/取消、A 租约过期后 B 占满额度时 A 不得返回直链，以及 HEAD/Playing 不重建丢失租约。`TestIntegrationPostgresContentLockSmallPoolWaiterCancellation` 已保留为真实 PostgreSQL 专项，但本轮专用库不可达，用户确认采用 fake 验收，未执行该用例；不能将 fake driver 或 miniredis 结果写成数据库/真实 Redis 已验证。
 
 2026-09-21 已在专用 `ember_integration_codex` PostgreSQL 数据库补跑 DirectPlay 专项：

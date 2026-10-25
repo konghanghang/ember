@@ -51,7 +51,7 @@
 
 - source 路径映射使用独立非敏感加载边界：只读取唯一启用的管理员全局 source 的 `embyPathPrefix/sourceRootId`，不检查 Provider 的 `active/error/cooling_down`、不读取 Provider UID、不解密 Cookie 或申请半开探测；管理员手工停用 source、没有唯一启用记录或位置非法时直接回退 Emby，真正访问 115 仍走严格凭证加载器并复核 source 位置。
 - DirectPlay 返回取消/deadline 或 request context 已终止时返回 `499/504`，不发起 Emby fallback。已进入代理后，上游传输返回包装后的 `context.Canceled` 则返回空体 `499`，普通请求只记 Debug 取消信息，视频保留单条 Info `playback_canceled`，不误记上游故障。
-- 其他 DirectPlay 不适用或失败场景直接代理权威 Emby 请求；Gateway 不读取媒体文件，也不自行实现 Range、缓存或传输编码语义。
+- 其他 DirectPlay 不适用或失败场景透明回退 Emby。仅旧 plain stream 的缺会话补查分支生成权威地址；新增扩展名 stream / 固定 original 补查分支保留原客户端 URL、RawQuery、Range 和 Header。Gateway 不读取媒体文件，也不自行实现 Range、缓存或传输编码语义。
 
 继承显式起播意图的内部媒体证明，在视频准入阶段使用其记录的原客户端会话建立 115 租约；后续客户端事件无需会话翻译，原样转发 Emby 后更新相同租约。媒体证明仍按补查会话验证，日志以 `playback_lease_session_bound` 关联原会话与 proof 的脱敏引用。此修复解决收到事件却找不到对应租约的问题，不证明客户端为何出现上报空档；超过 reservation/active/paused 原 TTL 的租约仍不复活。升级前已使用内部会话建立的旧租约不会被迁移，应停止并重新起播建立新租约。
 
@@ -287,6 +287,7 @@ sequenceDiagram
 - 登录后的目标 Web Item Image 可按独立图片合同使用无 Token 的精确 `/emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index；它不参与 Principal、PlaybackInfo 证明或 115 决策，携 Token 图片仍走普通身份门控。
 - 数据库只保存 32 字节 Token HMAC，不保存 AccessToken 明文。
 - 后续受保护请求按 [客户端兼容矩阵](./emby-client-compatibility-matrix.md) 收集 `X-Emby/X-MediaBrowser` 直接 Token Header、严格应用头和固定 query aliases；所有非空来源同值才接受，空值、重复、冲突和非法格式失败关闭。任意 Bearer、Quick Connect/PIN 不进入 Gateway 身份来源。
+- 三种应用头的 `Emby` / `MediaBrowser` scheme 按 [RFC 9110 §11.1](https://www.rfc-editor.org/rfc/rfc9110.html#section-11.1) 大小写不敏感识别，Token 原字节及字段 grammar、重复/冲突检查保持；日志只用相同规则输出固定 scheme 分类。
 - Store 请求取消/deadline 分别返回 `499/504`，只有 driver 保证未发送到 PostgreSQL 的幂等读错误才重试一次；真正存储失败继续 `503` 并记录脱敏连接池统计。
 - 用户停用、Emby 禁用、访问禁用、解绑/删除和设备强制退出会写本地软撤销；普通到期使用实时资格拒绝，不永久撤销映射。
 
@@ -304,16 +305,17 @@ mappingId + itemId + mediaSourceId -> container
 
 ### 4.2 缺 PlaySessionId 的按需 PlaybackInfo
 
-plain stream 带唯一 MediaSourceId 和 `Static=true`、但没有 PlaySessionId 时：
+GET/HEAD 的 plain stream、`stream.{Container}` 和固定 `original.mp4/mkv` 在唯一非空 MediaSourceId、显式唯一 `Static=true` 且完全没有 PlaySessionId key 时，可以按[播放合同 4.5](./emby-playback-proxy-contract.md#45-缺失-playsessionid-的按需-playbackinfo)补查。新增扩展名 stream / 固定 original 只接受身份 Token、MediaSourceId、Static、Container，以及可选唯一且匹配 Principal.DeviceId 的 DeviceId；容器必须单一合法且不是 manifest，stream 的额外 Container 存在时必须一致，original 必须显式带同扩展名 Container。无 Static 的 original 缺会话、缺源、多源歧义、未知/选流参数及设备/容器错配继续回源。
 
 1. 先筛选同一 mapping/item/source 且完整 Principal 身份匹配的未过期证明，再选本设备最新记录；其他设备的新证明不能遮蔽本设备仍有效的证明，身份变化时不得复用旧 PlaySessionId。
 2. 未命中时使用当前用户 Token 请求内部 Emby `GET /Items/{Id}/PlaybackInfo?UserId=...`；不使用管理员 API Key，Token 不进入 URL。
 3. singleflight 键为 mapping/item/mediaSource/device/Token-SHA256，键中不保留明文 Token，也不输出键；相同键才合并请求。调用固定 10 秒超时，等待方可独立取消。
-4. 成功响应必须匹配 item/source 并提供 PlaySessionId/Container；合格 DirectPlay source 写入原证明缓存。
-5. 分别准备两份请求：追加缺失参数的 115 决策请求，以及严格验证 `DirectStreamUrl` 后形成的正常 Emby fallback 请求。
-6. DirectStreamUrl 缺失或无效时，正常 fallback 使用 Emby 官方 Web 的 `/Videos/{Id}/stream.{Container}`；只有扩展名也无法安全形成时才使用补齐后的 plain stream。
-7. DirectStreamUrl 中的 URL Token 全部删除，改用当前用户 Token Header；原 method、Range、应用 Header 和非播放身份参数继续保留。
-8. resolver 失败时不伪造参数，回到原请求或 4.1 的 Container 降级 fallback。
+4. 成功响应必须提供 PlaySessionId/Container，按明确 MediaSourceId 精确选择匹配 item/source 的唯一源，不能取多源中的第一项；合格 DirectPlay source 写入原证明缓存。显式 Static 的 Size=0 观察语义保持，不套用无 Static MKV 的正数 Size 例外。
+5. 115 决策请求只追加缺失参数，Emby fallback 独立保存。新增扩展名 stream / 固定 original 在补查、证明判断或 DirectPlay 失败时都保留原 URL、RawQuery、Range 和 Header，不采用补查返回的 DirectStreamUrl。
+6. 只有旧 plain stream 的正常 fallback 使用严格验证后的 `DirectStreamUrl`，缺失或无效时使用 Emby 官方 Web 的 `/Videos/{Id}/stream.{Container}`；只有扩展名也无法安全形成时才使用补齐后的 plain stream。
+7. 旧 plain stream 的 DirectStreamUrl 中 URL Token 全部删除，改用当前用户 Token Header；原 method、Range、应用 Header 和非播放身份参数继续保留。resolver 失败时不伪造参数，仅该旧分支可进入 4.1 的 Container 降级 fallback。
+
+补查不自行产生或续期严格起播许可，首次转存仍由 strict/compatible 独立判定；HEAD 不能新增转存或租约。取消、发布令牌、停止隔离和固定会话 live binding 条件保持。
 
 ### 4.3 固定会话续播重新核验
 
@@ -348,7 +350,7 @@ sequenceDiagram
 mappingId + itemId + mediaSourceId + playSessionId
 ```
 
-缓存包含 Principal 身份、`Path/Container`、Emby Size 观察值和 Direct Play 能力，TTL 5 分钟、全局最多 4096 条、每个 mapping 最多 64 条，仅当前 Gateway 进程可见。证明、独立起播许可、播放关联分别使用相同容量规则：优先淘汰当前 mapping 最旧记录；新 mapping 在全局满载时才淘汰全局最旧记录，相同时间按写入顺序处理。许可/关联满载不直接拒绝新记录；在途发布令牌仍沿用请求期容量保护，不能为腾位删除仍运行的 owner。Emby Size 不参与 proof 或路径解析；进程重启、证明缺失/过期/错配只会失去 115 加速，合法请求仍 fallback Emby。
+缓存包含 Principal 身份、`Path/Container`、Emby Size 观察值和 Direct Play 能力，TTL 5 分钟、全局最多 4096 条、每个 mapping 最多 64 条，仅当前 Gateway 进程可见。证明、独立起播许可、播放关联分别使用相同容量规则：优先淘汰当前 mapping 最旧记录；新 mapping 在全局满载时才淘汰全局最旧记录，相同时间按写入顺序处理。许可/关联满载不直接拒绝新记录；在途发布令牌仍沿用请求期容量保护，不能为腾位删除仍运行的 owner。Emby Size 不参与 proof 或路径解析；补查后仍无有效证明的合法请求 fallback Emby。进程重启会丢失 proof/live binding，固定会话冷请求不补查；客户端 PlaybackInfo 或符合 4.2 的无会话首请求可以重建证明。
 
 ## 6. 视频请求决策
 
@@ -361,10 +363,13 @@ flowchart TD
     C -- 用户硬状态/到期 --> R2[reject<br/>403]
     C -- 身份存储失败 --> R3[reject<br/>503]
     C -- 请求取消 / deadline --> R4[reject<br/>499 / 504]
-    C -- Principal 合法 --> OD{plain static stream<br/>缺 PlaySessionId?}
+    C -- Principal 合法 --> OD{符合 4.2 的无会话首请求?<br/>显式 Static 和唯一媒体源}
     OD -- 是 --> PI[当前用户 Token<br/>补取 PlaybackInfo]
-    PI -- 成功 --> AF[准备独立 Emby fallback<br/>DirectStreamUrl / stream.Container]
+    PI -- 成功 --> PK{原请求是 plain stream?}
+    PK -- 是 --> AF[准备独立 Emby fallback<br/>DirectStreamUrl / stream.Container]
+    PK -- 否 --> OF[只补齐 115 决策参数<br/>保留原客户端 fallback]
     AF --> D{固定静态播放形态?}
+    OF --> D
     PI -- 失败 --> CR
     OD -- 否 --> D
     D -- 否 --> FB{已有权威 fallback?}
@@ -397,7 +402,7 @@ flowchart TD
 - `GET` 或 `HEAD`；
 - `/emby/Videos/{Id}/stream`、`stream.{Container}` 或 `{StreamFileName}`；
 - 唯一非空 `MediaSourceId`；
-- 唯一非空 `PlaySessionId`；
+- 唯一非空 `PlaySessionId`，由客户端提供或符合 4.2 的补查取得；
 - 精确 `Static=true`；或满足[播放代理合同 5.1 节](./emby-playback-proxy-contract.md#51-senplayer-缺失-static-的证据边界)及 [5.2 节](./emby-playback-proxy-contract.md#52-senplayer-originalmkv-抓包证据2026-10-14)的受限 `original.mp4/mkv` 无 Static 请求（只有身份参数、有效本地对应容器证明，MKV 额外要求正数 Size）；
 - 请求容器与证明中的 Container 匹配；
 - 证明中的 MediaSource 支持 Direct Play。
@@ -412,7 +417,7 @@ flowchart TD
 
 HLS/DASH manifest、转码分片、不完整参数、未映射路径、账号不可用、Provider 错误、秒传失败、目标复核失败、链接不兼容等都进入 fallback，不拒绝合法用户。
 
-其中按需 PlaybackInfo 成功时会补齐真实 PlaySessionId/Container，并可能获得 115 `302`；115 不适用或失败时使用与决策请求分离的权威 Emby fallback。失败后 plain `/stream` 再命中近期用户条目快照时，固定记录 `fallback/route/container_recovered`，该降级分支不尝试 115。
+其中按需 PlaybackInfo 成功时会补齐真实 PlaySessionId/Container，并可能获得 115 `302`；旧 plain stream 的失败分支使用与决策请求分离的权威 Emby fallback，新增扩展名 stream / 固定 original 则保留原请求。resolver 失败后，只有 plain `/stream` 再命中近期用户条目快照时才记录 `fallback/route/container_recovered`，该降级分支不尝试 115。
 
 ## 7. DirectPlay 保留式秒传
 
@@ -538,7 +543,7 @@ downurl 和通用 GET 的响应体读取中断在调用方 context 有效时是 
 
 ### 8.2 fallback
 
-115 fallback 始终使用权威 Emby 请求，并保留 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header。Gateway 的 fallback 决策只表示请求已交给 Emby，不代表客户端已经完整播放。
+115 fallback 按 4.2 区分请求形态：旧 plain stream 可使用补查后的权威 Emby 地址，新增扩展名 stream / 固定 original 保留原 URL/RawQuery；method、Range、If-Range、实际视频 User-Agent 和应用认证 Header 继续透传。上游 200/206/416、ETag、Last-Modified、Content-Range 与 HEAD 无正文语义保持，Gateway 不自行实现条件 Range。fallback 决策只表示请求已交给 Emby，不代表客户端已经完整播放。
 
 ### 8.3 单条决策日志
 
@@ -624,6 +629,8 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 | Gateway/Infuse | 2026-08-23 已确认登录/普通资源 `200` 与按需 PlaybackInfo `proofCount=1`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目确认 `proofAccepted=true`、source 路径映射、Provider Size 转存成功，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认 `path_not_mapped` 条目经权威 Emby 扩展名 fallback 返回 `206` 并实际播放，115 首次/复用 `302` 可播放，外挂/内嵌字幕及 Playing/Progress/Stopped `204` 均正常 | 115 CDN 完整响应头/Range/全文件字节、UA/IP 绑定和长期 Provider 风控；生产未故障注入 `providerOperation/accountRole`，只保留 fake 测试证据 |
 
 自动化测试不得请求真实 Emby/115。真实验证必须使用测试账号/文件并取得明确授权，不能把 fake、数据库或一次性 Provider 检查表述为 Infuse 已可用。
+
+2026-10-25 首轮三批次基线为 `master@30fb9a4d`，后续协议增量已完成认证 scheme、复杂 PlaybackInfo/多源、实际视频 UA、条件 Range、非加速媒体代理与无会话首请求补查的定向回归，以及全量非数据库 Go 测试、Gateway/DirectPlay/EmbyToken race、vet/build 和独立代码审查；记录见[主计划第 7 节](../plan/architecture/gateway-client-compatibility.md#7-后续协议兼容改进2026-10-25)，入口见[测试指南](../runbooks/testing.md)。普通字幕/HLS/Audio/Download/Sync 只验证受保护透明代理，Audio/Sync 不增加专用能力，Download 不证明新增套餐权益；本轮不增加 Web UI、配置、migration 或 CORS，未部署，不把历史 Infuse/SenPlayer 实测扩展为这些新增形态已验收。
 
 2026-10-17 二轮修复的自动化证据：`080be97`（A）、`da4d64a`（B）、`d3f6fed`（C）对应工作区均通过 API `go vet ./...`、`go test ./...`、`go build ./...`；B 的 Gateway、C 的 Provider/账号/DirectPlay/Gateway 另有 race 验证。新增 fake/SQL mock 覆盖文件错误与健康隔离、errno、断连后停止释放、设备与凭证合并键、每 mapping 配额及淘汰、假时钟阶段预算、取消日志、秒传观测、UID 桶与提交后清理。该批验证未启用真实 PostgreSQL 集成，也未请求真实 Emby/115/Redis 或播放器，不能并入历史真实验收结论。
 

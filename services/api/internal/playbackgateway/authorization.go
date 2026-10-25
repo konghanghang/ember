@@ -389,6 +389,10 @@ func parseApplicationAuthorizationFields(value string, headerKind applicationAut
 	}
 	position, ok := applicationAuthorizationFieldsStart(value, headerKind)
 	if identityOnly {
+		// Token identity accepts Emby/MediaBrowser on Authorization,
+		// X-Emby-Authorization and X-MediaBrowser-Authorization. Select the
+		// grammar supporting both schemes; headerKind-specific combinations
+		// apply only to strict metadata parsing, not protected Token admission.
 		position, ok = applicationAuthorizationFieldsStart(value, applicationHeaderEmby)
 	}
 	if !ok {
@@ -444,14 +448,14 @@ func parseApplicationAuthorizationFields(value string, headerKind applicationAut
 	return fields, nil
 }
 
-// applicationAuthorizationFieldsStart accepts Emby on its documented headers
-// and MediaBrowser on the X-Emby shape observed from Infuse or its explicit
-// X-MediaBrowser compatibility alias, without arbitrary scheme expansion.
+// applicationAuthorizationFieldsStart recognizes the existing scheme/Header
+// combinations with HTTP's case-insensitive scheme comparison. The required
+// ASCII space and all subsequent bytes, including Token case, stay unchanged.
 func applicationAuthorizationFieldsStart(value string, headerKind applicationAuthorizationHeader) (int, bool) {
 	switch {
-	case (headerKind == applicationHeaderStandard || headerKind == applicationHeaderEmby) && strings.HasPrefix(value, embyAuthorizationScheme):
+	case (headerKind == applicationHeaderStandard || headerKind == applicationHeaderEmby) && len(value) >= len(embyAuthorizationScheme) && strings.EqualFold(value[:len(embyAuthorizationScheme)], embyAuthorizationScheme):
 		return len(embyAuthorizationScheme), true
-	case (headerKind == applicationHeaderEmby || headerKind == applicationHeaderMediaBrowser) && strings.HasPrefix(value, mediaBrowserAuthorizationScheme):
+	case (headerKind == applicationHeaderEmby || headerKind == applicationHeaderMediaBrowser) && len(value) >= len(mediaBrowserAuthorizationScheme) && strings.EqualFold(value[:len(mediaBrowserAuthorizationScheme)], mediaBrowserAuthorizationScheme):
 		return len(mediaBrowserAuthorizationScheme), true
 	default:
 		return 0, false

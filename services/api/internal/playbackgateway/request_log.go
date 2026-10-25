@@ -278,13 +278,17 @@ func applicationAuthorizationDiagnostics(header http.Header) (string, string, *a
 	return scheme, "present", nil
 }
 
-// applicationAuthorizationSchemeCode returns a fixed label instead of an
-// upstream-controlled scheme string.
+// applicationAuthorizationSchemeCode shares the identity gate's scheme
+// recognition and returns a fixed label without exposing Header values.
 func applicationAuthorizationSchemeCode(value string) string {
-	switch {
-	case strings.HasPrefix(value, embyAuthorizationScheme):
+	position, ok := applicationAuthorizationFieldsStart(value, applicationHeaderEmby)
+	if !ok {
+		return "other"
+	}
+	switch position {
+	case len(embyAuthorizationScheme):
 		return "emby"
-	case strings.HasPrefix(value, mediaBrowserAuthorizationScheme):
+	case len(mediaBrowserAuthorizationScheme):
 		return "media_browser"
 	default:
 		return "other"

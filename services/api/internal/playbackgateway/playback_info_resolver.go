@@ -381,15 +381,15 @@ func augmentVideoRequestWithPlaybackInfo(request *http.Request, resolved onDeman
 	return clone, true
 }
 
-// onDemandPlaybackInfoCandidate recognizes only a plain static stream with one
-// MediaSourceId and no client-supplied PlaySessionId key.
-func onDemandPlaybackInfoCandidate(request *http.Request) (string, string, bool) {
-	if request == nil || request.URL == nil {
+// onDemandPlaybackInfoCandidate accepts explicit static streams with one source
+// and no session key. Plain streams retain their established query contract;
+// extension and fixed original routes require the narrower stream-first shape.
+func onDemandPlaybackInfoCandidate(request *http.Request, principal embytoken.Principal) (string, string, bool) {
+	if request == nil || request.URL == nil || (request.Method != http.MethodGet && request.Method != http.MethodHead) {
 		return "", "", false
 	}
 	pathInfo := videoPath(request.URL)
-	if pathInfo.ItemID == "" || !strings.EqualFold(pathInfo.StreamFileName, "stream") ||
-		queryKeyExistsFold(request.URL.Query(), "PlaySessionId") {
+	if pathInfo.ItemID == "" || queryKeyExistsFold(request.URL.Query(), "PlaySessionId") {
 		return "", "", false
 	}
 	mediaSourceID, mediaSourceOK := singleBoundedQueryValue(request.URL.Query(), "MediaSourceId", maxProofMediaSourceIDBytes)
@@ -397,7 +397,57 @@ func onDemandPlaybackInfoCandidate(request *http.Request) (string, string, bool)
 	if !mediaSourceOK || !staticOK || !strings.EqualFold(staticValue, "true") {
 		return "", "", false
 	}
+	if !strings.EqualFold(pathInfo.StreamFileName, "stream") && !streamFirstRequestEligible(request, principal, pathInfo.StreamFileName) {
+		return "", "", false
+	}
 	return pathInfo.ItemID, mediaSourceID, true
+}
+
+// streamFirstRequestEligible limits newly supplemented routes to the pinned
+// static-file contract. Container and optional device must be unambiguous;
+// unproved query options remain entirely on the original Emby request path.
+func streamFirstRequestEligible(request *http.Request, principal embytoken.Principal, fileName string) bool {
+	lowerFileName := strings.ToLower(fileName)
+	original := lowerFileName == "original.mp4" || lowerFileName == "original.mkv"
+	if !original && !strings.HasPrefix(lowerFileName, "stream.") {
+		return false
+	}
+	query, err := url.ParseQuery(request.URL.RawQuery)
+	if err != nil {
+		return false
+	}
+	container, ok := acceleratedStreamContainer(fileName, query)
+	if !ok {
+		return false
+	}
+	container, ok = normalizedContainer(container)
+	if !ok || strings.Contains(container, ",") {
+		return false
+	}
+	if original || queryKeyExistsFold(query, "Container") {
+		value, valid := singleBoundedQueryValue(query, "Container", maxProofContainerBytes)
+		if !valid || !strings.EqualFold(value, container) {
+			return false
+		}
+	}
+	for key := range query {
+		if _, tokenKey := canonicalTokenQueryKey(key); tokenKey {
+			// ServeHTTP has already validated the Token carriers and principal.
+			continue
+		}
+		switch strings.ToLower(key) {
+		case "mediasourceid", "static", "container":
+			// Uniqueness and bounds are checked before the resolver is entered.
+		case "deviceid":
+			value, valid := singleBoundedQueryValue(query, "DeviceId", maxProofDeviceIDBytes)
+			if !valid || value != principal.DeviceID {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // appendRawQueryValue adds one trusted key/value pair without parsing or
