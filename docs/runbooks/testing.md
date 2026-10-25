@@ -174,6 +174,30 @@ python -m pytest tests
 make test-bot-report
 ```
 
+### Gateway 持续自动化专项
+
+在仓库根目录执行三个独立入口：
+
+```bash
+make test-gateway-capture
+make test-gateway-race
+make test-gateway-contract
+```
+
+| 入口 | 检查范围 | CI 运行环境 |
+| --- | --- | --- |
+| `scripts/test/gateway-capture.sh` | 采集工具离线测试，以及专项 runner/契约校验器自身的受控测试 | Python 3.9、3.11 两个独立矩阵项，显式 `PYTHON=python` |
+| `scripts/test/gateway-race.sh` | Gateway、DirectPlay、115 账号、配额与 Provider 五包；`-race -skip 'Integration\|PostgreSQL' -count=1 -timeout=180s` | Go 1.24.13，无数据库服务 |
+| `scripts/test/gateway-contract.sh` | Go 实际诊断日志经过 Python 过滤与摘要，锁定字段、原因、脱敏、缓存快照及可信会话关联 | Go 1.24.13 + Python 3.11，无数据库服务 |
+
+专项使用 fake/mock，不启动项目服务，不读取 `.env`，Go 入口清空 `EMBER_INTEGRATION_DATABASE_URL`。Python 入口默认使用 `python3`；需要指定已有解释器时设置 `PYTHON=/path/to/python`，无效显式值直接失败。普通 Go 包测试仍不依赖 Python，`scripts/gateway-capture/` 的独立复制运行仍不依赖 Go。
+
+结果默认写入 `artifacts/test-results/gateway-capture/`、`gateway-race/` 和 `gateway-contract/`，保留固定日志及 `meta.json`。可设置 `GATEWAY_TEST_RESULTS_ROOT` 指向其他结果根目录；仅覆盖对应专项的固定输出文件，不清空其他内容。失败返回非零且 meta 记录失败，不能把旧日志或缺失的 producer 输出当作本次成功。
+
+`.github/workflows/test.yml` 为三个专项分别过滤路径：只改采集工具会运行采集矩阵和跨语言契约；API 改动会运行 race 和跨语言契约；专项 runner、共享测试依赖、统一入口和 workflow 也纳入对应过滤。纯文档改动继续不触发工作流。每个 job 独立上传日志；汇总表保留 API/Web/Bot 覆盖率，增加专项的成功、失败、跳过或取消状态，采集矩阵按版本保留 artifact。
+
+`make test` 增加采集和契约检查，race 复用原 `test-api` 的全量 `-race`，避免重复执行五包；`make test-report`（`scripts/test/all.sh`）增加全部三个专项，保留原 API/Web/Bot 流程。旧完整入口可能执行数据库或 Web 集成路径；仅验证本节时使用上面的三个专项，不用完整入口代替。GitHub 实际执行与真实播放器验收分别记录，不以本地通过推断二者完成。实施状态见[主计划第 9 节](../plan/architecture/gateway-client-compatibility.md#9-持续自动化检查2026-10-25)。
+
 ## 什么时候必须补手工测试
 
 下列改动只跑编译不够：

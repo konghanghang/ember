@@ -105,6 +105,8 @@
 
 同日后续优化以 `8799688` 为基线，完成采集工具的固定认证/路由/UA 过滤和离线 `diagnosticSummary`、媒体/直链固定 miss 原因及累计容量快照，以及独立 preID 成功哈希复用。两个用户和两个个人目标的顺序/重叠 fake，在任务、写入与配额工作量相同的条件下确认实际前缀读取从 2 次减至 1 次；全量非数据库 Go 测试、五包 race、vet/build、独立审查、原目录/独立目录 39 项 Python 离线测试、10 个源文件编译/AST 和 Go 日志→Python 摘要串接复验均完成，结果见主计划第 8 节。未部署或请求真实 Emby/115/数据库，真实缓存命中率、准备耗时、首帧和客户端收益未测；不增加 Web UI、配置或 migration，计划数不变且不归档。
 
+同日以 `3e1cd42` 为基线补齐持续自动化：采集 Python 3.9/3.11 矩阵、五包 race、Go→Python 实际日志合同分别接入 CI，统一测试入口和失败/跳过状态汇总同步完成。三个 runner 本地通过：双 Python 各 39 项采集加 20 项入口/校验器测试、五包 race、31 个字段和 4 类 Gateway 日志合同，以及相关 vet/配置检查与独立审查，详见主计划第 9 节。用户明确按单 Gateway 维护；远端 CI 尚未运行，真实客户端及性能验收仍待完成，计划数和归档条件不变。
+
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
@@ -117,7 +119,7 @@
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | [bot-telegram/group-checkin-retention.md](../plan/bot-telegram/group-checkin-retention.md) | 规则已确认，待实施 | 2026-10-08 计划记录观看或签到任一达标、共用周期与签到门槛；不将方案记录视为实现证据 | 保留在 `docs/plan/bot-telegram/` |
 | [architecture/senplayer-original-stream-compatibility.md](../plan/architecture/senplayer-original-stream-compatibility.md) | 实现与本地验证完成，待实机验收 | MKV 受限原文件匹配、现有目标复用与无许可零转存写入回归完成，MP4/HEAD/Size=0 原规则受保护；Go 非集成/race/vet/build 与抓包工具测试通过；尚未部署 | 按授权部署，完成 SenPlayer 302/CDN/字幕与播放分项验收后归档 |
-| [architecture/gateway-client-compatibility.md](../plan/architecture/gateway-client-compatibility.md) | 协议与采集/缓存/preID 优化本地完成，待真实验收 | `8799688` 加本轮优化通过全量非数据库 Go、五包 race、vet/build、39 项 Python 与日志串接复验及审查；preID 等工作量 fake 为 `2→1`；未部署 | 按授权完成客户端分项、真实命中率与准备耗时验证后归档 |
+| [architecture/gateway-client-compatibility.md](../plan/architecture/gateway-client-compatibility.md) | 协议、优化与持续自动化本地完成，待远端 CI 和真实验收 | 优化提交 `3e1cd42` 后增加采集双 Python、五包 race 与日志合同 CI；三个 runner、本地反向回归及独立审查通过，真实客户端和性能证据仍缺失 | 按单 Gateway 范围完成远端 CI、授权客户端分项及实际收益验证后归档 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
@@ -227,7 +229,7 @@
 
 ## 当前结论
 
-截至 2026-10-25，`docs/plan/` 共有 14 份现行实施稿，逐项状态见 B 节。Gateway 客户端兼容首轮、协议增量及采集/缓存/preID 优化已完成本地实现、验证与审查，真实客户端及性能收益未验收；各历史批次的测试、数据库和客户端结果仍只覆盖当时版本，不能作为新方案已经完成的证据。当前需要处理的是：
+截至 2026-10-25，`docs/plan/` 共有 14 份现行实施稿，逐项状态见 B 节。Gateway 客户端兼容首轮、协议增量、采集/缓存/preID 优化及持续自动化已完成本地实现、验证与审查；新增 CI 尚未远端运行，真实客户端及性能收益未验收。各历史批次的测试、数据库和客户端结果仍只覆盖当时版本，不能作为新方案已经完成的证据。当前需要处理的是：
 
 1. 继续以真实 E2E 边界约束 Gateway/115 计划，不能用 fake、发布 Tag 或 Gateway `302` 代替 CDN 字节与完整会话验收
 2. 9 月 12 日后续改动的 DirectPlay PostgreSQL 专项已于 9 月 21 日补跑通过；仍需保留真实 Redis、115 与客户端未验收边界

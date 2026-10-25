@@ -1,6 +1,6 @@
 # Gateway 客户端兼容与首次转存策略方案
 
-> 状态：协议兼容、诊断与 preID 优化实现和本地验证完成，待真实客户端及性能验收
+> 状态：协议兼容、诊断、preID 优化与持续自动化已完成本地验证，待远端 CI、真实客户端及性能验收
 > 负责人：Ember
 > 更新时间：2026-10-25
 
@@ -24,6 +24,7 @@
 - 不重写客户端 `IsPlayback`、query、body、媒体能力字段或原始响应；不把 GET、Range、Playing 推断为可靠的用户起播证明。
 - 不允许 HEAD 新增转存，不放宽原文件资格、身份、账号、租约、配额和任务所有权，不恢复已失效的在途租约。
 - 不引入新的媒体传输 Provider、远程视频中转、自动删除、后台预热或跨进程证明缓存；不启动服务或自动实施真实外部验证。
+- 用户已明确当前只运行单个 Gateway，本计划不扩展多实例协调、分布式缓存或跨进程在途任务合并。
 
 ## 当前事实
 
@@ -143,6 +144,25 @@ preID 查询仍位于目标双查、转存许可、配额预留及任务开始�
 
 验证基线为 `master@8799688ac555e91ba584bfe4c3ee41dc8de9bcb4` 加本节增量。在 `services/api` 执行 `go test ./... -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go test -race ./internal/services/directplay ./internal/services/p115account ./internal/services/p115quota ./internal/integrations/p115 ./internal/playbackgateway -skip 'Integration|PostgreSQL' -count=1 -timeout=180s`、`go vet ./...`、`go build ./...` 均通过；Python 使用合成报文/日志和 mocked SSH。没有启动项目服务或连接真实 Emby/115/数据库，未部署或取得实际客户端性能数据。
 
+### 9. 持续自动化检查（2026-10-25）
+
+诊断与 preID 优化已提交为 `3e1cd42c528bea8a14a0c41329c31f17d86aab18`。用户确认按单 Gateway 范围继续落实以下三项；本节仅增加测试和 CI 入口，不改变播放、认证、转存、缓存或部署行为。
+
+1. **采集工具离线测试接入 CI**：Python 3.9/3.11 分别运行工具测试和测试入口自身的受控测试。路径过滤必须覆盖单独修改 `scripts/gateway-capture/` 的情况，统一 Makefile 和报告入口提供同名专项。
+2. **关键 Go 包 race 常态化**：Gateway、DirectPlay、115 账号、配额与 Provider 五包使用 `-race`、非数据库范围和显式超时，在独立 job 执行；不启动项目服务或为本项新增数据库服务。
+3. **永久 Go→Python 日志合同**：Go 测试经真实诊断格式化/日志方法产生合成记录，Python 使用采集工具实际过滤与摘要方法验证字段、枚举、脱敏及关联语义。缺少 producer、Go 测试失败、字段遗漏或摘要语义变化都应使检查失败，不能以空输入通过。普通 Go 测试不依赖 Python，独立复制的采集工具仍不依赖 Go。
+
+三个入口统一保留各自日志和退出状态，CI 汇总明确区分成功、失败、跳过与取消。API、采集工具、对应 runner 和 workflow 改动应触发实际受影响的检查；契约检查覆盖两端变化。本地仅执行新增离线入口，不运行可能启动服务或访问数据库的旧整套入口。
+
+- [x] 完成三个 runner、CI job 的触发与汇总配置，以及统一 Makefile/报告入口；`make test` 复用原 API 全包 race，不重复五包专项。
+- [x] 完成 Go producer/Python consumer 合同及异常、脱敏、关联边界回归；Go stdout/stderr 分开保存，依赖下载提示不混入 JSON。
+- [x] 完成本地专项、入口失败传播、配置一致性验证与两轮独立审查，同步测试指南、架构与计划索引。
+- [ ] 推送后核对 GitHub 实际 job 执行结果；本地脚本通过不等于远端 workflow 已运行。
+
+验证基线为 `master@3e1cd42c528bea8a14a0c41329c31f17d86aab18` 加本节增量。实际执行三个新增 runner：Python 3.9.6/3.11.15 各通过 39 项采集测试和 20 项 runner/校验器测试；Go 1.24.13 五包 race 通过；Go→Python 合同通过 3 个 timing 场景、31 个字段、4 个 Gateway 场景及 6 类会话冲突。两个新增 Go 测试所在包的 `go vet`、shell 语法、Makefile dry-run、YAML 结构/路径检查、汇总状态模拟及文档链接检查通过，独立审查未发现剩余 P0/P1/P2/P3。本地使用已有 Go/Python 与临时编译缓存，关闭 Go 模块下载；未执行旧完整 API/Web/Bot 入口，未启动项目服务或连接真实业务依赖。GitHub 运行、部署及真实播放尚未执行。
+
+本节随主计划保留；完成本地自动化不替代部署、真实客户端与性能验收，也不触发多实例实现或自动外部验证。
+
 ## 影响范围
 
 | 子系统 | 影响 |
@@ -151,6 +171,7 @@ preID 查询仍位于目标双查、转存许可、配额预留及任务开始�
 | Web | 有：既有设置中心的枚举配置展示与保存验收；优先复用动态表单，不新增页面或播放器专用开关 |
 | Bot | 无：不新增命令、通知或 Internal API |
 | 配置 / 部署 | 有数据库运行期配置；默认严格、不依赖环境变量，预计不改 Compose、镜像或 schema；部署仍单独执行 |
+| 测试 / CI | 第 9 节增加采集离线、五包 race、跨语言日志合同的专项入口、路径触发与结果汇总 |
 | 文档 | 有：本计划、两份关联计划、系统架构、播放代理合同、客户端矩阵、115 端到端参考、配置参考及测试/排障入口 |
 
 ## 验证方式

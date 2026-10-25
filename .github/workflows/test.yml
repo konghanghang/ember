@@ -30,6 +30,9 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
       bot: ${{ steps.filter.outputs.bot }}
+      gateway_capture: ${{ steps.filter.outputs.gateway_capture }}
+      gateway_race: ${{ steps.filter.outputs.gateway_race }}
+      gateway_contract: ${{ steps.filter.outputs.gateway_contract }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -54,6 +57,33 @@ jobs:
               - 'services/bot/**'
               - 'scripts/test/bot.sh'
               - 'scripts/test/lib.sh'
+              - '.github/workflows/test.yml'
+            gateway_capture:
+              - 'scripts/gateway-capture/**'
+              - 'scripts/test/gateway-*.sh'
+              - 'scripts/test/gateway_contract.py'
+              - 'scripts/test/tests/**'
+              - 'scripts/test/all.sh'
+              - 'scripts/test/lib.sh'
+              - 'Makefile'
+              - '.github/workflows/test.yml'
+            gateway_race:
+              - 'services/api/**'
+              - 'scripts/test/gateway-race.sh'
+              - 'scripts/test/tests/**'
+              - 'scripts/test/all.sh'
+              - 'scripts/test/lib.sh'
+              - 'Makefile'
+              - '.github/workflows/test.yml'
+            gateway_contract:
+              - 'services/api/**'
+              - 'scripts/gateway-capture/**'
+              - 'scripts/test/gateway-contract.sh'
+              - 'scripts/test/gateway_contract.py'
+              - 'scripts/test/tests/**'
+              - 'scripts/test/all.sh'
+              - 'scripts/test/lib.sh'
+              - 'Makefile'
               - '.github/workflows/test.yml'
 
   test-api:
@@ -253,6 +283,99 @@ jobs:
           path: artifacts/test-results/bot
           if-no-files-found: error
 
+  test-gateway-capture:
+    name: Test Gateway capture (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.gateway_capture == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.11']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run offline Gateway capture tests
+        env:
+          PYTHON: python
+        run: bash scripts/test/gateway-capture.sh
+
+      - name: Upload Gateway capture test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-gateway-capture-py${{ matrix.python-version }}
+          path: artifacts/test-results/gateway-capture
+          if-no-files-found: error
+
+  test-gateway-race:
+    name: Test Gateway race
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.gateway_race == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.24.13'
+          cache-dependency-path: services/api/go.sum
+
+      - name: Run offline Gateway race checks
+        run: bash scripts/test/gateway-race.sh
+
+      - name: Upload Gateway race test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-gateway-race
+          path: artifacts/test-results/gateway-race
+          if-no-files-found: error
+
+  test-gateway-contract:
+    name: Test Gateway Go to Python contract
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.gateway_contract == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.24.13'
+          cache-dependency-path: services/api/go.sum
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Run Gateway diagnostic contract checks
+        env:
+          PYTHON: python
+        run: bash scripts/test/gateway-contract.sh
+
+      - name: Upload Gateway contract test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-gateway-contract
+          path: artifacts/test-results/gateway-contract
+          if-no-files-found: error
+
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
@@ -260,6 +383,9 @@ jobs:
       - test-api
       - test-web
       - test-bot
+      - test-gateway-capture
+      - test-gateway-race
+      - test-gateway-contract
     if: always()
 
     steps:
@@ -268,10 +394,17 @@ jobs:
           API_COVERAGE: ${{ needs.test-api.outputs.coverage }}
           WEB_COVERAGE: ${{ needs.test-web.outputs.coverage }}
           BOT_COVERAGE: ${{ needs.test-bot.outputs.coverage }}
+          API_RESULT: ${{ needs.test-api.result }}
+          WEB_RESULT: ${{ needs.test-web.result }}
+          BOT_RESULT: ${{ needs.test-bot.result }}
+          GATEWAY_CAPTURE_RESULT: ${{ needs.test-gateway-capture.result }}
+          GATEWAY_RACE_RESULT: ${{ needs.test-gateway-race.result }}
+          GATEWAY_CONTRACT_RESULT: ${{ needs.test-gateway-contract.result }}
         run: |
           api="${API_COVERAGE:-N/A}"
           web="${WEB_COVERAGE:-N/A}"
           bot="${BOT_COVERAGE:-N/A}"
+          artifacts_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}#artifacts"
 
           if [[ "${api}" != "N/A" ]]; then
             api="${api}%"
@@ -284,14 +417,19 @@ jobs:
           fi
 
           {
-            echo "## Coverage Summary"
+            echo "## Test Summary"
             echo ""
-            echo "| Module | Coverage | Artifact |"
-            echo "| --- | --- | --- |"
-            echo "| API | ${api} | \`test-results-api\` |"
-            echo "| Web | ${web} | \`test-results-web\` |"
-            echo "| Bot | ${bot} | \`test-results-bot\` |"
+            echo "| Suite | Result | Coverage | Artifact |"
+            echo "| --- | --- | --- | --- |"
+            echo "| API | ${API_RESULT} | ${api} | [test-results-api](${artifacts_url}) |"
+            echo "| Web | ${WEB_RESULT} | ${web} | [test-results-web](${artifacts_url}) |"
+            echo "| Bot | ${BOT_RESULT} | ${bot} | [test-results-bot](${artifacts_url}) |"
+            echo "| Gateway capture (Python 3.9 / 3.11) | ${GATEWAY_CAPTURE_RESULT} | N/A | [test-results-gateway-capture-py3.9](${artifacts_url}), [test-results-gateway-capture-py3.11](${artifacts_url}) |"
+            echo "| Gateway race | ${GATEWAY_RACE_RESULT} | N/A | [test-results-gateway-race](${artifacts_url}) |"
+            echo "| Gateway Go → Python contract | ${GATEWAY_CONTRACT_RESULT} | N/A | [test-results-gateway-contract](${artifacts_url}) |"
             echo ""
             echo "Coverage 仅统计基础单测套件；集成测试仍通过 artifact 单独留痕。"
-            echo "每个 artifact 均包含日志、JSON/JUnit 报告、suite meta.json 和覆盖率产物。"
+            echo "API / Web / Bot artifact 保留原报告与覆盖率；Gateway 专项保存日志和 suite meta.json，不单独统计覆盖率。"
+            echo "链接指向本次运行的 Artifacts 列表；skipped 套件不产生 artifact，启动前失败也可能没有产物。"
+            echo "Gateway capture 的 Result 汇总 Python 3.9 / 3.11 矩阵；各版本日志分别保存在对应 artifact。"
           } >> "$GITHUB_STEP_SUMMARY"

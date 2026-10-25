@@ -9,6 +9,7 @@ PYTHON ?= python3.11
 .PHONY: help init setup dev-api dev-gateway dev-web dev-bot build-api build-web build \
 	docker-build docker-up docker-up-gateway docker-down docker-logs docker-logs-api docker-logs-gateway \
 	test-api test-web test-bot test test-api-report test-web-report test-bot-report test-report \
+	test-gateway-capture test-gateway-race test-gateway-contract \
 	db-backup db-restore clean clean-deps clean-test-artifacts \
 	clean-docker fmt-api info
 
@@ -130,10 +131,19 @@ test-bot-report: ## 运行 Bot 测试并输出结果产物
 	@echo "🧪 运行 Bot 测试并生成报告..."
 	@bash scripts/test/bot.sh
 
-test: test-api test-web test-bot ## 运行所有测试
+test-gateway-capture: ## 运行 Gateway 采集工具离线测试并输出结果产物
+	@bash scripts/test/gateway-capture.sh
+
+test-gateway-race: ## 运行 Gateway 关键包离线 race 检查并输出结果产物
+	@bash scripts/test/gateway-race.sh
+
+test-gateway-contract: ## 运行 Go 到 Python 的 Gateway 诊断契约检查
+	@bash scripts/test/gateway-contract.sh
+
+test: test-api test-web test-bot test-gateway-capture test-gateway-contract ## 运行所有测试
 	@echo "✅ 所有测试执行完成"
 
-test-report: ## 运行 API / Web / Bot 并统一输出结果产物
+test-report: ## 运行 API / Web / Bot 与 Gateway 专项并统一输出结果产物
 	@echo "🧪 运行全量测试并生成报告..."
 	@bash scripts/test/all.sh
 	@echo "✅ 测试结果已写入 artifacts/test-results"

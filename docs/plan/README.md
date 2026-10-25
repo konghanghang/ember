@@ -43,7 +43,7 @@
 - `architecture/p115-personal-account-routing-and-redis-quotas.md`（阶段 0–3 已落地，基础 PostgreSQL 集成于 2026-09-05 通过；后续 DirectPlay 数据库专项于 2026-09-21 补跑通过，受控真实外部验收仍待完成）
 - [115 新增转存起播许可](./architecture/p115-transfer-playback-intent.md)（代码与自动化已完成，保留已有文件和跨会话缓存复用；待受控客户端验收）
 - [SenPlayer 原文件播放兼容](./architecture/senplayer-original-stream-compatibility.md)（2026-10-14：受限 MKV 匹配与本地 mock/race 验证完成，抓包工具同步原文件识别；保留预读不新增转存，待部署后实机验收）
-- [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（2026-10-25：首轮、协议兼容及基于 `8799688` 的采集摘要/缓存原因/preID 复用均已完成实现、本地验证与审查；等工作量 fake 确认 preID 读取 `2→1`。真实客户端、命中率与延迟收益未验收；默认严格、管理员可开启全局兼容模式并接受预读可能转存）
+- [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（2026-10-25：协议兼容、采集摘要/缓存原因/preID 复用及持续自动化均已完成本地实现、验证与审查；新增采集双 Python 矩阵、五包 race 与 Go→Python 日志合同 CI。按单 Gateway 范围维护，远端 CI、真实客户端、命中率与延迟收益待验收；默认严格、管理员可开启全局兼容模式并接受预读可能转存）
 - `architecture/runtime-settings-cache-evolution.md`
 - `bot-telegram/notification-mute-rules.md`
 - [群签到与双途径保号](./bot-telegram/group-checkin-retention.md)（2026-10-08：产品规则已确认，待实施；单开关、共用 N 天，观看或签到任一达标即可保号；签到默认 5 天，PostgreSQL 明细保留 3 个日历月并自动清理；权益保存首次检查日期，修改规则不重置起点；技术检查与迁移验证待执行）
