@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-10-17（同步 115 二轮修复 A–C，现有计划数量与真实验收状态保持）
+> 更新时间：2026-10-25（新增 Gateway 客户端兼容计划，现行实施稿共 14 份）
 
 本清单只回答三件事：
 
@@ -101,6 +101,8 @@
 
 2026-10-17 二轮修复 A–C（`080be97`、`da4d64a`、`d3f6fed`）已补齐文件/账号失败分类、停止释放、设备与缓存容量隔离、源阶段预算、取消观测及 tombstone 后限流桶清理。对应 Go 全量 vet/test/build、定向 race、fake/SQL mock 证据已同步到三份相关计划与稳定合同；本批没有新增真实 PostgreSQL/Redis/115/Emby/客户端验收，不改变计划数量、剩余验收项或归档条件。
 
+2026-10-25 增补：[Gateway 客户端兼容与转存策略](../plan/architecture/gateway-client-compatibility.md) 已完成现状调查和方案确认，当前共 14 份实施稿。用户确认默认严格、管理员可开启全局兼容模式，并接受开启后预读可能转存；图片与网页开关解耦、会话路径大小写、固定会话续播重新核验和兼容模式均待实施。本次 fake 测试及临时场景只证明旧行为与缺口，不代表修复完成或真实客户端验收通过。
+
 | 文档 | 盘点结论 | 主要证据或剩余项 | 建议动作 |
 |------|----------|------------------|----------|
 | `access-auth/registration-user-capacity.md` | 继续保留 | 未发现 `registration_user_limit` 配置、容量统计或注册门控实现 | 保留在 `docs/plan/access-auth/` |
@@ -113,6 +115,7 @@
 | `bot-telegram/notification-mute-rules.md` | 继续保留 | 未发现 `notification_rules` 模型、migration、API 或 Bot 统一决策实现 | 保留在 `docs/plan/bot-telegram/` |
 | [bot-telegram/group-checkin-retention.md](../plan/bot-telegram/group-checkin-retention.md) | 规则已确认，待实施 | 2026-10-08 计划记录观看或签到任一达标、共用周期与签到门槛；不将方案记录视为实现证据 | 保留在 `docs/plan/bot-telegram/` |
 | [architecture/senplayer-original-stream-compatibility.md](../plan/architecture/senplayer-original-stream-compatibility.md) | 实现与本地验证完成，待实机验收 | MKV 受限原文件匹配、现有目标复用与无许可零转存写入回归完成，MP4/HEAD/Size=0 原规则受保护；Go 非集成/race/vet/build 与抓包工具测试通过；尚未部署 | 按授权部署，完成 SenPlayer 302/CDN/字幕与播放分项验收后归档 |
+| [architecture/gateway-client-compatibility.md](../plan/architecture/gateway-client-compatibility.md) | 方案已确认，待实施 | 当前代码已复现图片开关耦合、会话大小写漏处理及固定会话 proof 过期回退；用户已确认默认严格和可选全局兼容模式，尚未修改业务代码或执行真实客户端验收 | 按三批次实现、验证并同步稳定合同；保留线上验收边界 |
 | `console-admin/device-risk-automation.md` | 继续保留 | 未发现 `device_risk_events`、扫描服务、配置或风险 UI | 保留在 `docs/plan/console-admin/` |
 | `console-admin/in-app-notification-center.md` | 继续保留 | 未发现通用站内通知模型、NotificationService、用户通知 API 或通知页 | 保留在 `docs/plan/console-admin/` |
 | `media-subscription/media-dedupe-and-quality-governance.md` | 继续保留 | 未发现 `media_duplicate_cache/media_duplicate_ignores` 或重复版本 API/UI | 保留在 `docs/plan/media-subscription/` |
@@ -222,8 +225,9 @@
 
 ## 当前结论
 
-截至 2026-09-22，`docs/plan/` 共有 9 份现行实施稿：5 份未落地草稿、1 份观察期缓存演进计划、2 份主要能力已落地但仍有验证或后续阶段未完成的 115 计划，以及本次新增转存起播许可方案。前端工程质量计划的 MediaStats camelCase 与 TMDB `{data,total}` 合同已完成 API/Web/Bot 同步并归档，不再列为待办。当前需要处理的是：
+截至 2026-10-25，`docs/plan/` 共有 14 份现行实施稿，逐项状态见 B 节。最新 Gateway 客户端兼容计划已确认、尚未实施；各历史批次的测试、数据库和客户端结果仍只覆盖当时版本，不能作为新方案已经完成的证据。当前需要处理的是：
 
 1. 继续以真实 E2E 边界约束 Gateway/115 计划，不能用 fake、发布 Tag 或 Gateway `302` 代替 CDN 字节与完整会话验收
 2. 9 月 12 日后续改动的 DirectPlay PostgreSQL 专项已于 9 月 21 日补跑通过；仍需保留真实 Redis、115 与客户端未验收边界
 3. 后续每次计划退场继续同步 plan/archive/proposals 三层索引和直接引用，避免再次出现状态漂移
+4. 按 Gateway 兼容计划分别推进图片与会话修复、续播重新核验、可选全局转存兼容模式；现行严格策略保持到对应实现完成并显式启用兼容模式
