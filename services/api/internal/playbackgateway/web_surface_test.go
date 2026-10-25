@@ -279,7 +279,9 @@ func TestGatewayBrandingConfigurationWithMappedTokenUsesProtectedRoute(t *testin
 	assertSecretsAbsent(t, logs.String(), fixtureAccessToken, "Emby Web", "web-device-1")
 }
 
-func TestGatewayWebSurfaceProxiesExactItemImageWithoutToken(t *testing.T) {
+// TestGatewayProxiesExactItemImageWithoutToken covers the observed image paths
+// while preserving the upstream bytes and independent image diagnostics.
+func TestGatewayProxiesExactItemImageWithoutToken(t *testing.T) {
 	tests := []struct {
 		name   string
 		method string
@@ -318,13 +320,13 @@ func TestGatewayWebSurfaceProxiesExactItemImageWithoutToken(t *testing.T) {
 			gateway.ServeHTTP(response, httptest.NewRequest(test.method, test.target, nil))
 
 			if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/jpeg" ||
-				upstreamCalls.Load() != 1 || policy.callCount() != 1 {
+				upstreamCalls.Load() != 1 || policy.callCount() != 0 {
 				t.Fatalf("response=%d headers=%v upstreamCalls=%d policyCalls=%d", response.Code, response.Header(), upstreamCalls.Load(), policy.callCount())
 			}
 			if test.method == http.MethodGet && response.Body.String() != "fixture-image" {
 				t.Fatalf("body=%q", response.Body.String())
 			}
-			if !strings.Contains(logs.String(), "route=emby_web") || strings.Contains(logs.String(), "code=token_header_invalid") {
+			if !strings.Contains(logs.String(), "route=item_image") || strings.Contains(logs.String(), "code=token_header_invalid") {
 				t.Fatalf("logs=%q", logs.String())
 			}
 			assertSecretsAbsent(t, logs.String(), "fixture-tag")
@@ -332,9 +334,9 @@ func TestGatewayWebSurfaceProxiesExactItemImageWithoutToken(t *testing.T) {
 	}
 }
 
-// TestGatewayImagePolicyFailureDiagnostics distinguishes request cancellation
-// from configuration outages without exposing error text or forwarding images.
-func TestGatewayImagePolicyFailureDiagnostics(t *testing.T) {
+// TestGatewayWebPolicyFailureDiagnostics distinguishes request cancellation
+// from configuration outages without exposing errors or forwarding Web assets.
+func TestGatewayWebPolicyFailureDiagnostics(t *testing.T) {
 	for _, test := range []struct {
 		name, reason string
 		err          error
@@ -353,9 +355,9 @@ func TestGatewayImagePolicyFailureDiagnostics(t *testing.T) {
 			var logs bytes.Buffer
 			gateway := newWebSurfaceTestGateway(t, upstream.URL, &fakeWebSurfacePolicy{err: test.err}, &logs)
 			response := httptest.NewRecorder()
-			gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/emby/Items/fixture-item/Images/Primary", nil))
+			gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/web/index.html", nil))
 			if response.Code != http.StatusServiceUnavailable || calls.Load() != 0 {
-				t.Fatal("failed policy lookup exposed an image")
+				t.Fatal("failed policy lookup exposed a Web asset")
 			}
 			if !strings.Contains(logs.String(), "reasonCode="+test.reason) {
 				t.Fatalf("missing safe failure classification %s", test.reason)
@@ -365,30 +367,25 @@ func TestGatewayImagePolicyFailureDiagnostics(t *testing.T) {
 	}
 }
 
-func TestGatewayItemImageRequiresExactPathMethodAndWebPolicy(t *testing.T) {
+// TestGatewayItemImageRequiresExactPathAndMethod keeps unobserved anonymous
+// image shapes protected instead of widening the existing image exception.
+func TestGatewayItemImageRequiresExactPathAndMethod(t *testing.T) {
 	tests := []struct {
-		name       string
-		method     string
-		target     string
-		enabled    bool
-		wantStatus int
-		wantPolicy int
-		wantPage   bool
+		name, method, target string
 	}{
-		{name: "disabled indexed image", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/1?tag=fixture", wantStatus: http.StatusNotFound, wantPolicy: 1, wantPage: true},
-		{name: "root path", method: http.MethodGet, target: "/Items/32019/Images/Primary?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "trailing slash", method: http.MethodGet, target: "/emby/Items/32019/Images/Primary/?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "encoded item id", method: http.MethodGet, target: "/emby/Items/item%2Did/Images/Primary?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "empty item id", method: http.MethodGet, target: "/emby/Items//Images/Primary?tag=fixture", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "oversized image type", method: http.MethodGet, target: "/emby/Items/32019/Images/" + strings.Repeat("a", 129), enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "index leading zero", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/00", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "negative index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/-1", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "signed index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/+1", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "non numeric index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/first", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "int32 overflow index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/2147483648", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "encoded index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/%30", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "index extra path", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/0/extra", enabled: true, wantStatus: http.StatusUnauthorized},
-		{name: "post", method: http.MethodPost, target: "/emby/Items/32019/Images/Primary", enabled: true, wantStatus: http.StatusUnauthorized},
+		{name: "root path", method: http.MethodGet, target: "/Items/32019/Images/Primary?tag=fixture"},
+		{name: "trailing slash", method: http.MethodGet, target: "/emby/Items/32019/Images/Primary/?tag=fixture"},
+		{name: "encoded item id", method: http.MethodGet, target: "/emby/Items/item%2Did/Images/Primary?tag=fixture"},
+		{name: "empty item id", method: http.MethodGet, target: "/emby/Items//Images/Primary?tag=fixture"},
+		{name: "oversized image type", method: http.MethodGet, target: "/emby/Items/32019/Images/" + strings.Repeat("a", 129)},
+		{name: "index leading zero", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/00"},
+		{name: "negative index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/-1"},
+		{name: "signed index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/+1"},
+		{name: "non numeric index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/first"},
+		{name: "int32 overflow index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/2147483648"},
+		{name: "encoded index", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/%30"},
+		{name: "index extra path", method: http.MethodGet, target: "/emby/Items/32019/Images/Backdrop/0/extra"},
+		{name: "post", method: http.MethodPost, target: "/emby/Items/32019/Images/Primary"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -399,18 +396,16 @@ func TestGatewayItemImageRequiresExactPathMethodAndWebPolicy(t *testing.T) {
 			}))
 			defer upstream.Close()
 
-			policy := &fakeWebSurfacePolicy{enabled: test.enabled}
+			policy := &fakeWebSurfacePolicy{enabled: true}
 			var logs bytes.Buffer
 			gateway := newWebSurfaceTestGateway(t, upstream.URL, policy, &logs)
 			response := httptest.NewRecorder()
 			gateway.ServeHTTP(response, httptest.NewRequest(test.method, test.target, nil))
 
-			if response.Code != test.wantStatus || upstreamCalls.Load() != 0 || policy.callCount() != test.wantPolicy {
+			if response.Code != http.StatusUnauthorized || upstreamCalls.Load() != 0 || policy.callCount() != 0 {
 				t.Fatalf("response=%d body=%q upstreamCalls=%d policyCalls=%d", response.Code, response.Body.String(), upstreamCalls.Load(), policy.callCount())
 			}
-			if test.wantPage {
-				assertWebSurfaceDisabledResponse(t, response, test.method)
-			} else if response.Body.Len() != 0 {
+			if response.Body.Len() != 0 {
 				t.Fatalf("response body=%q, want empty", response.Body.String())
 			}
 		})
@@ -620,11 +615,11 @@ func TestClassifyEmbyWebSurfaceIsDepthAndMethodExact(t *testing.T) {
 		{name: "branding configuration", method: http.MethodGet, target: "/emby/Branding/Configuration?" + validWebApplicationQuery().Encode(), want: true},
 		{name: "branding configuration missing query", method: http.MethodGet, target: "/emby/Branding/Configuration"},
 		{name: "branding configuration head", method: http.MethodHead, target: "/emby/Branding/Configuration?" + validWebApplicationQuery().Encode()},
-		{name: "item image get", method: http.MethodGet, target: "/emby/Items/32019/Images/Primary?tag=fixture", want: true},
-		{name: "item image head", method: http.MethodHead, target: "/emby/Items/item-guid/Images/Backdrop", want: true},
+		{name: "item image get independent", method: http.MethodGet, target: "/emby/Items/32019/Images/Primary?tag=fixture"},
+		{name: "item image head independent", method: http.MethodHead, target: "/emby/Items/item-guid/Images/Backdrop"},
 		{name: "root item image remains protected", method: http.MethodGet, target: "/Items/32019/Images/Primary"},
-		{name: "indexed item image", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/0", want: true},
-		{name: "indexed item image int32 max", method: http.MethodHead, target: "/emby/Items/72567/Images/Backdrop/2147483647", want: true},
+		{name: "indexed item image independent", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/0"},
+		{name: "indexed item image int32 max independent", method: http.MethodHead, target: "/emby/Items/72567/Images/Backdrop/2147483647"},
 		{name: "indexed item image leading zero", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/00"},
 		{name: "indexed item image negative", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/-1"},
 		{name: "indexed item image overflow", method: http.MethodGet, target: "/emby/Items/72567/Images/Backdrop/2147483648"},

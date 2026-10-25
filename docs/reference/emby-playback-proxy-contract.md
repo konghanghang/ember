@@ -241,7 +241,7 @@ Ember 本地撤销固定三种粒度：
 当前 `internal/playbackgateway` 固定以下可测试行为：
 
 - 固定 OpenAPI 顶层 API family 的 root path 先规范化为单一 `/emby/...`；family 与 `/emby` 前缀比较大小写不敏感，已有规范前缀保持，重复大小写变体 `/emby/emby/...` 返回空体 `400`。Web UI Surface 不参与 API 规范化，四个固定 `/web` WebAppService API 例外仍规范化并受保护。
-- root 或 `/emby` 的精确 `POST Users/AuthenticateByName` 由 Emby 决定认证结果；精确 `GET System/Info/Public`、public users/无 Index 公开头像允许登录前请求，后两者携 Token 时保留本地身份检查。仅 `/emby` 的 `GET/HEAD Branding/Css.css` 保持公开，Branding Configuration 及无 Token 媒体图片维持既有 Web Surface 策略。尾斜杠、额外层级、alternate escaping 不扩展公开权限，其余路径默认受保护。
+- root 或 `/emby` 的精确 `POST Users/AuthenticateByName` 由 Emby 决定认证结果；精确 `GET System/Info/Public`、public users/无 Index 公开头像允许登录前请求，后两者携 Token 时保留本地身份检查。仅 `/emby` 的 `GET/HEAD Branding/Css.css` 保持公开，Branding Configuration 维持 Web Surface 策略；既有精确无 Token 媒体图片独立透明代理，不读取网页开关。尾斜杠、额外层级、alternate escaping 不扩展公开权限，其余路径默认受保护。
 - 认证上游只有 `200` 才旁路解析；编码响应与解码副本检查上限均为 `1 MiB`。identity、gzip、deflate 或 br 响应逐字节恢复后返回，字段顺序、压缩编码和未知 JSON 字段不重编码。
 - 不合法、超过检查上限或映射写入失败的成功响应仍原样返回，但该 Token 不建立映射，下一次受保护请求失败关闭。
 - 受保护请求按兼容矩阵取得唯一 AccessToken，再调用 `ResolvePrincipal`；Token 来源缺失、非法、重复、冲突、未映射、已撤销和身份错配返回空体 `401`，当前用户不可用或到期返回空体 `403`，身份存储不可用返回空体 `503`。请求取消和 deadline 分别使用 `499/504`，不计作 Store outage。
@@ -261,11 +261,11 @@ Ember 本地撤销固定三种粒度：
 
 因此 Web UI 不能简单按 `/web/*` 全部匿名代理。Gateway 只把不携带 Token 的 `GET/HEAD /`、`/favicon.ico`、`/web` 页面和静态资源识别为 `emby_web`；上述四个 API 只有精确 root path 规范化到 `/emby/web/...` 并继续执行 Token 门控。目标 Web 已确认的单层 `/web/strings/{locale}.json` 按有界文件名进入静态 Surface，精确 `GET /emby/Branding/Configuration` 只有在严格 query 元数据有效时进入同一开关边界。固定 SDK 同时把 `GET/HEAD /Items/{Id}/Images/{Type}` 与 `GET/HEAD /Items/{Id}/Images/{Type}/{Index}` 标记为 `Requires authentication as user`，后者要求 int32 图片序号；但目标 Web 在本地映射已经成功、相邻 Sessions Capabilities/UserSettings 分别取得上游 `204/200` 后，批量发出的上述两种图片请求均不携带任何 Token carrier。
 
-第一轮修复后，无 Index Primary 图片已通过真实 Gateway 进入 `route=emby_web` 并取得上游 `200`；目标 Web 随后请求 `/emby/Items/72567/Images/Backdrop/0` 与 `/1`，仍无 Token，旧边界因额外 Index 段分别以 `token_missing` 本地 `401`。为兼容该目标行为，只有 `/emby` 前缀、无 Token、层级精确且动态段有界的 `GET/HEAD /emby/Items/{Id}/Images/{Type}`，以及追加一个规范非负十进制 int32 `{Index}` 的形态进入 Web Surface，并由 `PLAYBACK_GATEWAY_WEB_ENABLED` 控制；原始 query/Header 和响应不改写，Emby 上游状态保持权威。Index 只接受 `0` 或无前导零的十进制数，拒绝负数、加号、非数字、溢出和空值。携带任一支持或非法 Token carrier 的同路径回到受保护分支；root `/Items/...`、上传、删除、额外层级和 encoded path 不继承该权限。2026-08-31 真实浏览器无 Token 读取 Backdrop Index `0/1` 均取得 `200 image/jpeg` 与非零字节。
+第一轮修复后，无 Index Primary 图片已通过真实 Gateway 进入 `route=emby_web` 并取得上游 `200`；目标 Web 随后请求 `/emby/Items/72567/Images/Backdrop/0` 与 `/1`，仍无 Token，旧边界因额外 Index 段分别以 `token_missing` 本地 `401`。为兼容该目标行为，只有 `/emby` 前缀、无 Token、层级精确且动态段有界的 `GET/HEAD /emby/Items/{Id}/Images/{Type}`，以及追加一个规范非负十进制 int32 `{Index}` 的形态当时进入 Web Surface。2026-10-25 已将这一既有图片合同分离为 `route=item_image`，不再读取 `PLAYBACK_GATEWAY_WEB_ENABLED`；原始 query/Header 和响应不改写，Emby 上游状态保持权威。Index 只接受 `0` 或无前导零的十进制数，拒绝负数、加号、非数字、溢出和空值。携带任一支持或非法 Token carrier 的同路径回到受保护分支；root `/Items/...`、上传、删除、额外层级和 encoded path 不继承该权限。2026-08-31 真实浏览器无 Token 读取 Backdrop Index `0/1` 均取得 `200 image/jpeg` 与非零字节。
 
 固定 SDK [Web Socket 合同](https://github.com/MediaBrowser/Emby.SDK/blob/6ee0155063bc85578196489926359a8f37419502/Documentation/doc/restapi/Web-Socket.html) 使用服务根地址的 `ws/wss` Upgrade，并携带 `api_key + deviceId`。Gateway 对根 Upgrade 继续执行通用 query Token 映射，现有 ReverseProxy 透传并升级 `101`；关闭 Web UI 不影响该链路。
 
-`PLAYBACK_GATEWAY_WEB_ENABLED` 只由设置中心数据库托管，默认 `true`，不读取环境变量。Gateway 对已识别 Web Surface 请求使用 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次数据库读取。真实存储故障退避 5 秒；请求取消或超时不缓存或共享，健康等待者重新回源，取消的等待者立即退出。开启则保持原始 method/path/query/Header 和响应透明代理；关闭时不访问上游，`GET` 返回固定的 `text/html; charset=utf-8` 中文友好 `404` 页面并携带 `Cache-Control: no-store`，`HEAD` 返回同状态及等价响应头但不写正文。提示页不加载 Emby、Vue、脚本、外部样式或字体，只显示“Emby 网页访问已关闭”和一条客户端/管理员指引；刷新读取失败期间仍返回空体 `503`。该读取不进入普通 API、视频、WebSocket 或健康检查路径。
+`PLAYBACK_GATEWAY_WEB_ENABLED` 只由设置中心数据库托管，默认 `true`，不读取环境变量。Gateway 对已识别 Web Surface 请求使用 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次数据库读取。真实存储故障退避 5 秒；请求取消或超时不缓存或共享，健康等待者重新回源，取消的等待者立即退出。开启则保持原始 method/path/query/Header 和响应透明代理；关闭时不访问上游，`GET` 返回固定的 `text/html; charset=utf-8` 中文友好 `404` 页面并携带 `Cache-Control: no-store`，`HEAD` 返回同状态及等价响应头但不写正文。提示页不加载 Emby、Vue、脚本、外部样式或字体，只显示“Emby 网页访问已关闭”和一条客户端/管理员指引；刷新读取失败期间仍返回空体 `503`。该读取不进入独立图片、普通 API、视频、WebSocket 或健康检查路径。
 
 目标日志已确认浏览器访问 Gateway 时实际请求 `/`、`/favicon.ico`、完整静态资源，以及登录前 `/web/strings/zh-CN.json`、`/emby/Branding/Css.css`、`/emby/Users/Public`、`/emby/Branding/Configuration` 和 `POST /emby/Users/AuthenticateByName`。2026-08-31 真实浏览器确认完整资源、公开用户、Branding Configuration、Brotli 登录映射、Sessions Capabilities、UserSettings、Primary/Backdrop 图片和登录后 WebSocket OPEN；Web 关闭 GET/HEAD 的中文 `404`、禁缓存和 Infuse 不受影响同样通过。Web 播放 115 文件按用户当前无使用场景排除，不表述为已兼容。
 
@@ -336,7 +336,13 @@ Gateway 保持普通 proof 的授权含义，另在同一个进程缓存中记�
 
 2026-09-29 Infuse `8.5.5` / 目标 Emby `4.9.3.0` 日志确认：客户端 JSON POST 明确 `IsPlayback=true`，但响应的 DirectPlay/DirectStream 均为 false；随后内部 GET 返回 true 且使用另一会话。能力差异的外部原因未证实，Gateway 不改写能力字段。当前实现将这种身份有效、本地路径明确、仅因 DirectPlay 不支持而拒绝的响应意图，保存在 proof 缓存同一锁内的有界集合（全局最多 4096 条、每 mapping 最多 64 条，满载优先淘汰本 mapping 最旧记录），不把它变成媒体证明。之后独立合格的内部 proof 只有完整 principal、条目、source、路径、Container 匹配且已知 Size 一致时，才能继承剩余许可；每份意图最多绑定一个补查 session，不从 GET 重新计时。新的客户端响应清除旧意图；原客户端 session 或已绑定补查 session 的成功 Stopped 都撤销许可，停止期间在途内部 GET 不得恢复它。显式客户端响应仍遵循既有发布令牌规则。没有客户端明确信号的 GET、详情、Playing/Range 不能生成许可。Debug `playback_transfer_intent_retained` / `playback_transfer_intent_inherited` 分别标识保留与匹配继承；日志不输出原始 session。该变更已覆盖 mock 完整 POST→补查→视频→转存准入链路，真实播放器与 115 部署后验收仍待完成。
 
-未提供该明确信号的客户端在目标不存在时使用 Emby fallback，不能承诺首次 115 加速。此策略的自动化与真实客户端证据分别见 [实施方案](../plan/architecture/p115-transfer-playback-intent.md)；不新增 SQL、配置或对外字段。
+以上是默认严格模式的明确起播合同，原始实施证据见 [实施方案](../plan/architecture/p115-transfer-playback-intent.md)。未提供该明确信号的客户端在严格模式下目标不存在时仍使用 Emby fallback。
+
+#### 首次转存兼容策略（2026-10-25）
+
+设置中心数据库项 `P115_TRANSFER_TRIGGER_MODE` 默认 `strict`；管理员可选择 `compatible`，让已经通过原文件资格、当前身份和媒体证明的 GET 在锁内二次查重仍缺失时，以独立兼容策略准入新转存。所有客户端适用，预读也可能触发转存；HEAD 永不新增转存。它不把 query false 改为 true，不创建或续期明确起播许可，也不改变账号、租约、配额、任务和失败清理。
+
+已有有效明确起播许可优先按严格合同处理；只有缺少该许可且确需新建目标时才读取模式。读取通过五秒配置缓存，单次最多 `500ms`；失败、过期读取错误或非法值不放宽准入，也不回写 115 账号健康。配置正常时保存后最多一个五秒窗口收敛；关闭不能回滚已开始的外部写入。配置读取后仍核对请求取消和最初 proof 代次，旧请求不能借替换证明授权。已有目标复用不依赖模式读取。
 
 ### 4.3 用户条目 Container 兼容快照
 
@@ -430,6 +436,14 @@ mappingId + itemId + mediaSourceId + playSessionId
 - 响应无效、过大、解析失败或没有合格 MediaSource 时，Emby 原始响应仍逐字节返回，只是不产生证明。
 
 MediaSource 观察日志的 proof 结果固定为 `proofAccepted=true + proofRejectReason=none`，或 `proofAccepted=false` 搭配 `identity_invalid`、`item_mismatch`、`path_missing`、`path_invalid`、`container_invalid`、`direct_play_unsupported`。`sizePresent/size` 只说明 Emby 观察值，不产生 proof 拒绝原因。合法 Path 完整记录；超过 proof 上限的异常 Path 使用 `pathTruncated=true` 有界记录。
+
+### 4.7 固定会话的续播重新核验
+
+当前原文件资格允许的 `original.mp4/mkv`、显式 static 的 `stream` / `stream.*` 固定会话 GET/HEAD，在 proof 过期或被清理后，仅当存在同完整身份、item/source/session 的 live binding 才补查。全部成功 302 都可建立该有界媒体关联，初始 30 秒；视频请求不延长活动期，只有成功找到既有租约的 Playing/Progress 才按 active/paused 续活。无活跃关联仍回退，不保留额外过期授权缓存。
+
+补查使用当前用户 Token 请求同一 Emby，重新核对路径、容器、已知 Size、本地媒体及播放能力；不扩大文件名、转码/选流、歧义或未知参数的资格。只有新响应与原关联及发布时的当前关联均匹配，才写入原请求 session 的单条内部证明别名；不改客户端请求/响应，不清除其他会话证明，明确清空严格起播许可。其他设备、用户和会话不能借用结果。
+
+请求合并按固定 session、关联代次和凭证摘要隔离；owner 与等待者有界。单个等待者取消不影响其他人，全部取消则取消共享查询并禁止发布。成功 Stopped、较新客户端响应、关联删除/过期或媒体变化使旧结果失效，旧清理不得删除后来创建的同键请求。失败保持原视频 URL、Range 和 Header 回退，不套用缺失 session 的 plain stream URL 改写。
 
 ## 5. 原始视频流合同
 
@@ -547,12 +561,12 @@ Content-Type: application/json
 
 网关处理要求：
 
-- 三类会话请求必须继续转发给 Emby，保持播放历史和进度能力。
+- 三类会话请求必须继续转发给 Emby，保持播放历史和进度能力；固定 POST 语义路径大小写不敏感，root 与 `/emby` 形态一致，编码、尾斜杠、额外层级及其他方法不触发本地事件处理。
 - 网关旁路观察事件，在 Emby 成功接受后更新已有 Redis 播放租约；更新使用保留上下文值的 `context.WithTimeout(context.WithoutCancel(request.Context()), 2*time.Second)`，客户端在成功转发后断连不取消已接受事件的租约收口。Stopped 同时撤销已记录的匹配新增转存许可；不能篡改客户端上报内容，也不创建数据库播放会话。
 - 当前 Gateway 只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 请求副本并恢复原始 body，提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 用于日志、成功事件的租约更新及停止许可撤销；未通过身份门控时不读取 body，非法、超大、非 JSON 或不支持编码的已认证 body 仍透明转发并只记录固定 `snapshotState`。
 - Redis sessionFingerprint 以 `PlaySessionId + Ember 用户 + 设备` 为主要维度。合格 GET 在 302 前只建立短期 `reservation` 并进入账号/用户占用索引；只有成功转发给 Emby 的 Playing 或 Progress 才能把已有 reservation 晋级为 `active`，API 真实活跃数不包含 reservation。
 - 对于已通过完整身份与媒体匹配、继承客户端显式起播意图的内部 proof，Gateway 在建立租约时使用 proof 记录的原客户端 PlaySessionId，内部补查 PlaySessionId 仍只用于媒体证明查找。事件请求及发往 Emby 的 body 完全不改写；后续 Playing/Progress/暂停/Stopped 自然命中同一 Redis 租约。该租约身份不会在 30 秒意图或 5 分钟 proof 到期时切换，续期仍仅由真实成功事件驱动。Debug `playback_lease_session_bound` 用 sessionRef/proofSessionRef 关联两者，不输出原始会话 ID。未建立可信关联时维持原会话策略，不按 item/device 猜测匹配；缺失/过期租约仍不由事件重建。
-- proof 缓存同一锁内保存有界播放关联（全局最多 4096 条，每个 mapping 最多 64 条，满载优先淘汰同 mapping 最旧关联），成功准入的视频证明建立 30 秒候选，成功命中租约的真实事件分别按 active 2 分钟、paused 15 分钟更新；视频请求不续活动期。新内部 proof 在 server/user/mapping/device/client/item/source/path/container/已知 size 完整匹配且关联仍活跃时，只继承原客户端会话；不续发新增转存许可。停止、租约缺失、过期或新客户端观察清理关联，旧发布令牌和旧 proof 代次不能重新建立它。事件本身不能创建关联或租约，不把关联缓存当作 Redis 准入真相。
+- proof 缓存同一锁内保存有界播放关联（全局最多 4096 条，每个 mapping 最多 64 条，满载优先淘汰同 mapping 最旧关联），所有成功 302 的视频证明（包括无严格起播许可的目标复用）建立 30 秒候选，成功命中租约的真实事件分别按 active 2 分钟、paused 15 分钟更新；视频请求不续活动期。新内部 proof 在 server/user/mapping/device/client/item/source/path/container/已知 size 完整匹配且关联仍活跃时，只继承原客户端会话；不续发新增转存许可。停止、租约缺失、过期或新客户端观察清理关联，旧发布令牌和旧 proof 代次不能重新建立它。事件本身不能创建关联或租约，不把关联缓存当作 Redis 准入真相。
 - `Progress + IsPaused=true` 表示暂停，不是 Stopped；`paused` 继续占用账号名额并使用更长 TTL。只有 Stopped 成功转发给 Emby 后才立即释放占用和活跃索引；对应新增转存许可撤销独立于租约是否存在，普通 proof 与媒体缓存保留。
 - `HEAD` 不能创建 reservation 或 active，只有命中同 session 既有租约时才允许复用 115 候选，否则继续 Emby fallback。符合条件的首次/预加载/带 Range GET 在网关侧无法可靠区分，因此最多创建同 session 的一个短 reservation；重复 GET/Range 只能复用，任何视频请求都不能绕过成功的会话事件直接形成 active。
 
@@ -581,7 +595,7 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 - Token 缺失、重复、无法映射、已本地撤销、身份错配或用户硬状态拒绝：返回固定拒绝响应，不能继续转发 Emby，否则会绕过 Ember 本地安全门控。
 - 请求已取消或 deadline：分别记录 `499/504`，不误报 Store outage；真实身份存储不可用仍拒绝，不能降级成未受控代理。
 - DirectPlay 返回取消/deadline，或请求 context 在其完成时已经终止：分别返回空体 `499/504`，不再发起 Emby fallback；最终决策固定为 `reject + stage=direct_play + reasonCode=request_canceled|request_deadline_exceeded`。
-- Principal 合法但没有近期 PlaybackInfo、证明过期、视频参数不完整或 MediaSource 不支持 Direct Play：不尝试 115 或停止尝试，透明转发原始请求到 Emby。
+- Principal 合法但没有近期 PlaybackInfo、证明过期、视频参数不完整或 MediaSource 不支持 Direct Play：除 §4.5 的缺 session 补查和 §4.7 的可信活跃会话重新核验外，不尝试 115 或停止尝试，透明转发原始请求到 Emby。
 - 路径未命中 115 source、账号未配置/未验证/冷却、查重/Range challenge/秒传/目标复核失败时，直接转发权威请求到 Emby。
 - 直链域名、过期时间、HeaderMode 或并发信息不兼容：不返回 302，直接回退 Emby。
 - Emby fallback 必须保留客户端原始 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header，不能重新拼装缩水版视频请求。
@@ -616,6 +630,8 @@ Token 映射只证明“该 Token 曾由该 Server 签发给该 Emby 用户”�
 代理上游返回（含包装后的）`context.Canceled` 时统一返回空体 `499`，不记录上游故障错误；普通请求只保留 Debug 取消诊断，视频回退保留单条 Info `playback_canceled` 决策。真实连接错误仍按既有 `502` 处理，不能把取消归为 Provider/账号故障。
 
 ## 10. 合同测试要求
+
+2026-10-25 扩展回归包括：图片独立于网页开关及无效 Token 不降级、三类会话大小写与停止收口、live binding 下固定会话重新核验与全部取消/发布乱序、默认严格和可选兼容的锁内 GET 准入、HEAD 禁写、策略读取失败不扩权及旧 proof 不能借新授权。正式用例位于 `client_surface_compatibility_test.go`、`playback_revalidation_test.go`、`transfer_trigger_test.go` 与配置专项；真实客户端验收仍单独记录。
 
 实现前后至少覆盖：
 

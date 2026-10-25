@@ -49,10 +49,11 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 - 支持 OpenAPI 顶层 API family 的 root 和可选 `/emby` 前缀；family 与 `/emby` 比较大小写不敏感，只规范化前缀，保留其余 path 字节。
 - 认证、SystemInfoPublic、公共用户、PlaybackInfo、视频固定路径的语义段大小写不敏感；尾斜杠、额外层级和 alternate escaping 不放宽。
 - Gateway 自己读取的 `UserId`、`MediaSourceId`、`PlaySessionId`、`Static`、`Container` query key 大小写不敏感；相同逻辑 key 的大小写重复仍视为歧义。
+- 三个固定会话 POST 端点的语义路径同样大小写不敏感，成功上游响应后的租约续期、停止释放和许可撤销保持一致；编码、尾斜杠和额外层级不会借此触发本地事件。
 - query 原始 key/value 与顺序继续交给上游，Gateway 不做 MediaWarp 式全局小写重写。
 - 无 Token 的 `GET/HEAD /`、`/favicon.ico` 与 `/web` 页面/静态资源由数据库 Web 开关控制；单层有界 `/web/strings/{locale}.json` 是目标 Web 已确认的静态资源，精确 `/web/ConfigurationPage(s)|strings|stringset` API、其他深层变体、携带 Token 的 Web path 和根 WebSocket Upgrade 仍走通用 Token 门控，不能借 Web UI Surface 绕过本地撤销。
 - 精确 `GET/HEAD /emby/Branding/Css.css` 是目标 Web 已确认的登录前匿名请求；精确 `GET /emby/Branding/Configuration` 只接受严格 Web query 应用元数据并受 Web Surface 开关控制。其他 Branding API、方法、尾斜杠和深层路径不继承登录前权限。
-- 目标 Web 登录后批量请求的无 Token `GET/HEAD /emby/Items/{Id}/Images/{Type}`，以及追加一个规范非负十进制 int32 `{Index}` 的形态，只按层级精确、动态段有界的 `/emby` 路径进入 Web Surface；携 Token 请求仍受保护，root、非法 Index、修改、深层和 encoded path 不继承权限。固定 SDK 的认证标记与目标请求形态存在冲突；无 Index Primary 与 Backdrop Index `0/1` 已分别取得真实上游 `200` 和非零图片字节。
+- 目标 Web 登录后批量请求的无 Token `GET/HEAD /emby/Items/{Id}/Images/{Type}`，以及追加一个规范非负十进制 int32 `{Index}` 的形态，只按层级精确、动态段有界的 `/emby` 路径进入独立 `item_image` 代理，不读取网页开关；携 Token 请求仍受保护，root、非法 Index、修改、深层和 encoded path 不继承权限。固定 SDK 的认证标记与目标请求形态存在冲突；无 Index Primary 与 Backdrop Index `0/1` 已分别取得真实上游 `200` 和非零图片字节。
 
 ### 2.3 响应与客户端名称
 
@@ -61,6 +62,7 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 - 层级精确的用户条目响应同样保持原字节，只缓存当前 mapping 下的 Item/MediaSource Container。plain `/Videos/{Id}/stream` 缺 PlaySessionId 时，Gateway 优先使用当前用户 Token 向同一 Emby 补取 PlaybackInfo；成功后分离 115 决策请求与 Emby fallback，后者使用严格验证并移除 URL Token 的 DirectStreamUrl，缺失时使用 `stream.{Container}`。
 - 因此 `MediaStreams: []` 等空数组不会被 `omitempty` 丢失；这是 MediaWarp 源码标注的 [Yamby 兼容点](https://github.com/AkimioJR/MediaWarp/blob/070ad99cb32e940b2b8ccb7c55b6efb7d311eac5/internal/service/emby/schema.go#L224-L233)。
 - 日志识别 Infuse Direct/Library、SenPlayer、Yamby、VidHub、Fileball、Conflux 和官方 Emby family；未知 UA 仍代理，不因名称进入不同认证或播放逻辑。
+- 默认严格模式仍要求明确起播才能首次转存；管理员选择全局 `P115_TRANSFER_TRIGGER_MODE=compatible` 后，合格原文件 GET 可按独立策略准入，接受包含 Infuse 在内的预读副作用，HEAD 禁止新增转存。固定会话 proof 过期后，仅已成功准入且由真实租约事件续活的媒体/session binding 可重新核验；不延长旧证明、不重授严格许可。
 
 ## 3. 客户端证据矩阵
 
@@ -68,8 +70,8 @@ query Token 可能被外层代理 access log 记录。部署必须只记录 `$ur
 | --- | --- | --- |
 | Infuse `8.5.x` | 目标环境已确认 root API、MediaBrowser 应用头、deflate AuthenticationResult、内嵌 Token、普通资源 API `200`。2026-08-29 Infuse `8.5.2` 的 `Size=0` 条目在解耦版本中得到 `proofAccepted=true`，完成 source 前缀/相对路径解析、Provider 权威 Size 转存，并由 Gateway 首次及多次复用返回 `302`。2026-08-31 macOS Infuse `8.5.2` 进一步确认本地扩展名 fallback `206`、首次/复用 `302` 实际播放、外挂/内嵌字幕，以及 Playing/Progress/Stopped `204`。账号运行期历史四类回写、1 分钟共享冷却和半开单探测已有 fake/race 与 PostgreSQL 集成证据；2026-10-17 新增文件分类、断连释放、设备/容量隔离与阶段预算修复仅有 fake/race/SQL mock 证据，不扩展为新一轮真实客户端或数据库验收 | 115 CDN 完整响应头/Range/全文件字节取证，以及自然发生的生产 Provider 冷却/恢复时长；其他平台仍需按目标版本记录 |
 | Infuse `8.5.5`（2026-09-29） | 生产日志确认显式 JSON POST `IsPlayback=true` 的响应能力为 false，随后内部 GET 能力为 true 且会话不同；另有源查询成功后因缺少许可退出、随后源账号不可用的样本。本次用 mock 锁定显式意图受限继承、原会话停止撤销与 30 秒到期，用 PostgreSQL 专项验证源探测成功后恢复及并发控制保护 | 修复后的真实首次转存、115 重定向及播放器完成播放待部署后验收；10 秒源路径超时的网络原因未证实 |
-| SenPlayer | 2026-09-21 用户反馈正常，不作为后续修复回归。2026-09-29 `6.0.4` / Emby `4.9.3.0` 已确认缺失 Static 的 MP4 响应头合同，受限适配已有 fake 回归，见播放代理合同 5.1。2026-10-14 同客户端、Gateway `f18c84e` 抓包确认：3 次 MKV 播放共 14 个 `original.mkv` GET 均无 Static；媒体证明支持 DirectPlay/DirectStream，视频类型、Range 总长度及 ETag 一致，全部以 request_not_eligible 回退 Emby 200/206；13 个播放事件得到 204，详见 [合同 5.2](./emby-playback-proxy-contract.md#52-senplayer-originalmkv-抓包证据2026-10-14) | 平台仍未记录；MKV 兼容已完成实现与 mock/race 验证，待部署后实机验收。用户选择仅兼容已有目标、保留预读不新增转存；query IsPlayback=false、body 缺失该字段不授予新增转存许可。真实 115 302、CDN Range、完整字节、字幕及修复后首帧未验收 |
-| Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢，Ember 保留原响应字节。2026-09-29 本地 Emby `4.9.3.0` 调试定位到 UserId 元数据没有双引号；支持有界无引号元数据后，真实 Yamby 登录、SystemInfo、Views、Items、Resume 和 Latest 均返回 `200`，未再出现解析错误或 `401` | 当前无 Token 图片被 Web 关闭开关返回 `404`，作为独立问题保留；客户端精确版本未记录；用户确认播放此前正常，本次不复验；无引号元数据与诊断已补 mock 回归 |
+| SenPlayer | 2026-09-21 用户反馈正常，不作为后续修复回归。2026-09-29 `6.0.4` / Emby `4.9.3.0` 已确认缺失 Static 的 MP4 响应头合同，受限适配已有 fake 回归，见播放代理合同 5.1。2026-10-14 同客户端、Gateway `f18c84e` 抓包确认：3 次 MKV 播放共 14 个 `original.mkv` GET 均无 Static；媒体证明支持 DirectPlay/DirectStream，视频类型、Range 总长度及 ETag 一致，全部以 request_not_eligible 回退 Emby 200/206；13 个播放事件得到 204，详见 [合同 5.2](./emby-playback-proxy-contract.md#52-senplayer-originalmkv-抓包证据2026-10-14) | 平台仍未记录；MKV 兼容已完成实现与 mock/race 验证，待部署后实机验收。2026-10-14 用户选择仅兼容已有目标，保留预读不新增转存。2026-10-25 新增默认严格、管理员可开启的全局兼容模式：query false/body 缺字段仍不产生严格许可，兼容模式以独立准入允许合格原文件 GET 首次转存，包括预读；真实新模式尚未验收。真实 115 302、CDN Range、完整字节、字幕及修复后首帧未验收 |
+| Yamby | MediaWarp 固定源码证明空 `MediaStreams` 数组不能丢，Ember 保留原响应字节。2026-09-29 本地 Emby `4.9.3.0` 调试定位到 UserId 元数据没有双引号；支持有界无引号元数据后，真实 Yamby 登录、SystemInfo、Views、Items、Resume 和 Latest 均返回 `200`，未再出现解析错误或 `401` | 历史无 Token 图片曾被 Web 关闭开关返回 `404`；2026-10-25 已分离图片路由并完成 fake 回归，真实首页显示尚未复测；客户端精确版本未记录；用户确认播放此前正常，本次不复验；无引号元数据与诊断已补 mock 回归 |
 | Emby Web | 目标 Gateway 日志已确认浏览器请求 `/`、`/favicon.ico`、完整静态资源、单层语言 JSON、Branding CSS，以及携四个必填 `X-Emby-*` query 元数据的 Public users、Branding Configuration 和 AuthenticateByName。2026-08-31 真实浏览器进一步确认完整页面资源、query 登录、Primary、Backdrop Index `0/1` 与登录后 WebSocket OPEN；Web 关闭时 GET/HEAD 中文 `404`、禁缓存和 Infuse 不受影响均通过 | Web 播放 115 文件按用户当前无使用场景排除，不表述为已兼容；Cloudflare Browser Insights 注入被 CSP 拦截，属于接受的部署层偏差 |
 | iOS Emby / Conflux / Fileball / VidHub | MediaWarp README 声明已测试这些客户端；Ember 有通用透明代理和 UA 观察 | 目标环境实机登录、资源、播放和 WebSocket |
 
@@ -103,6 +105,8 @@ go build ./...
 诊断只记录固定字段状态，不记录用户名、密码、字段长度或摘要；mock 回归、Gateway race、Go vet/build 已通过，外部请求由用户在现有本地进程上发起。
 
 ## 4. Infuse 扫库与 Token Store
+
+2026-10-25 客户端兼容收口：独立图片路由、会话大小写、可信固定会话重新核验和可选兼容准入已完成代码与本地 fake/race 验证；设置中心复用既有 enum 控件并覆盖严格→兼容→严格保存，未新增生产 UI 特判。真实 Yamby 首页、SenPlayer 首次/复用转存、CDN Range、字幕和长时间续播仍未复验，不能把这些自动化结果填成目标客户端已通过。实施与剩余验收见 [Gateway 客户端兼容计划](../plan/architecture/gateway-client-compatibility.md)。
 
 Infuse 会并发请求 Views、VirtualFolders、DisplayPreferences、Items、Latest 和 Resume。每个请求仍执行当前 Token 映射、撤销与用户状态检查，不增加 Principal TTL 缓存：
 

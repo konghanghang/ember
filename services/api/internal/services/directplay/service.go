@@ -39,8 +39,8 @@ type ResolveRequest struct {
 	downloadScope   *downloadCacheScope
 	SourceFile      p115integration.FilePathQuery
 	ClientUserAgent string
-	// CanCreateTransfer rechecks current playback intent only when a new target
-	// must be created under the content lock. Nil denies creation, not reuse.
+	// CanCreateTransfer rechecks explicit intent or configured video admission
+	// only when a new target is needed under the content lock. Nil denies creation.
 	CanCreateTransfer func() bool
 }
 

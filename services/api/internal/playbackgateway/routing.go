@@ -94,6 +94,8 @@ func routeKindCode(kind routeKind) string {
 		return "video"
 	case routeWebSurface:
 		return "emby_web"
+	case routeItemImage:
+		return "item_image"
 	default:
 		return "protected"
 	}

@@ -38,7 +38,7 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 
 以下配置由 API 的 `ConfigService` 统一解析，并由设置中心托管。
 
-`ConfigService` 对普通数据库 key 使用当前进程内 `60s` 惰性 TTL 缓存：首次加载后在 TTL 内复用，过期后的下一次访问同步回源，访问不会延长 TTL；数据库不存在的 key 也会缓存。设置中心保存成功后会立即失效当前 API 进程对应 key，但没有后台自动刷新、空闲淘汰或跨进程失效。Gateway 的动态日志级别和 Web Surface 开关另用下文所述 `5s` policy；未来演进边界见 [运行期配置缓存演进方案](../plan/architecture/runtime-settings-cache-evolution.md)。
+`ConfigService` 对普通数据库 key 使用当前进程内 `60s` 惰性 TTL 缓存：首次加载后在 TTL 内复用，过期后的下一次访问同步回源，访问不会延长 TTL；数据库不存在的 key 也会缓存。设置中心保存成功后会立即失效当前 API 进程对应 key，但没有后台自动刷新、空闲淘汰或跨进程失效。Gateway 的动态日志级别、Web Surface 开关和首次转存策略另用下文所述 `5s` policy；未来演进边界见 [运行期配置缓存演进方案](../plan/architecture/runtime-settings-cache-evolution.md)。
 
 ### 2.1 基础业务
 
@@ -63,6 +63,7 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 | `EMBY_API_KEY` | 是 | 否 | Emby API 鉴权密钥 |
 | `NEXT_PUBLIC_EMBY_URL` | 否 | 否 | 控制台展示与用户跳转使用的前端 Emby 地址；沿用历史键名，作为数据库配置项保留，为空时回退 `EMBY_URL` |
 | `PLAYBACK_GATEWAY_WEB_ENABLED` | 否 | 否 | 是否允许通过 Gateway 打开 Emby 网页端；默认开启，后台保存后最多 5 秒生效，不影响客户端 API、视频或 WebSocket |
+| `P115_TRANSFER_TRIGGER_MODE` | 否 | 否 | 115 首次转存策略；`strict`（默认）要求明确起播许可，`compatible` 额外允许合格原文件视频 GET 首次转存，包括可能的预读；HEAD 永不新增转存 |
 | `TMDB_API_KEY` | 是 | 否 | TMDB 接口密钥 |
 | `MOVIEPILOT_URL` | 否 | 否 | MoviePilot 地址 |
 | `MOVIEPILOT_API_KEY` | 是 | 否 | MoviePilot API Key（X-API-KEY） |
@@ -72,6 +73,9 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 - 旧版 `MOVIEPILOT_USERNAME` / `MOVIEPILOT_PASSWORD` 已废弃。
 - 若历史实例仍保存旧用户名密码配置，而 `MOVIEPILOT_API_KEY` 为空，设置中心测试应视为需要迁移，而不是“未配置成功”。
 - `PLAYBACK_GATEWAY_WEB_ENABLED` 只存在于设置中心和 `settings` 表，不读取同名环境变量；Gateway 对已识别 Web Surface 使用 5 秒进程缓存，正值和默认值对应的缺失记录都会缓存，TTL 到期后的并发刷新合并为一次数据库读取。真实存储故障退避 5 秒，期间持续返回 `503`，避免数据库故障时逐请求重试；请求取消或超时不写入共享错误缓存，健康等待者使用自己的 context 重新加载，取消的等待者立即退出；关闭时返回 `404`。
+- 现有合同允许的无 Token `/emby/Items/{Id}/Images/{Type}[/{Index}]` GET/HEAD 图片独立透传 Emby，不读取网页开关，也不受其配置故障影响；携 Token 图片继续执行普通身份门控。root 无 Token 图片未扩展。
+- `P115_TRANSFER_TRIGGER_MODE` 只存在于设置中心和 `settings` 表，不读取环境变量；缺失记录为 `strict`，空白或非法持久值不是默认值。设置中心允许大小写和首尾空白规范化，保存非法值被拒绝。Gateway 在锁内确认目标不存在、开始新转存的准入点读取五秒缓存，单次读取最多 `500ms`；正常读取时修改最多经过一个五秒窗口收敛。过期读取失败、超时或非法值不沿用兼容授权，已有有效明确起播许可继续按严格规则处理，已有文件复用不依赖该读取。配置错误不回写 115 账号健康。
+- 兼容模式作用于所有客户端，不按 UA 列白名单；开启后包括 Infuse 在内的预读可能消耗转存配额。关闭模式只约束尚未开始的准入，不能回滚已发送到 115 的写入。身份、媒体证明、账号、租约、二次查重、配额及失败释放边界保持。
 - `email_verification` 会经过 Normalize（大小写与首尾空格不敏感），不要再假设只有严格字面量 `"true"` 才算开启。
 
 ### 2.3 邮件服务

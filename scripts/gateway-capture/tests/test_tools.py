@@ -159,6 +159,52 @@ class CollectionTests(unittest.TestCase):
                 tampered = logs.filter_line(prefix + f"code={code} evidence={secret}")
                 self.assertNotIn("evidence", tampered)
 
+    def test_transfer_trigger_keeps_only_fixed_admission_categories(self):
+        """Preserve the four admission outcomes without creating a free-text secret channel."""
+        prefix = "2026-01-01T00:00:00.000Z [PlaybackGateway] code=direct_play_redirect "
+        for trigger in ["explicit_playback", "compatible_request", "existing_target", "policy_denied"]:
+            with self.subTest(trigger=trigger):
+                result = logs.filter_line(prefix + f"transferTrigger={trigger}")
+                self.assertEqual(result["transferTrigger"], trigger)
+
+        secret = "SYNTHETIC_CREDENTIAL_MUST_NOT_APPEAR"
+        for trigger in [secret, "compatible_request_secret", "COMPATIBLE_REQUEST",
+                        "", f"https://example.invalid/video?token={secret}"]:
+            with self.subTest(rejected=trigger):
+                result = logs.filter_line(prefix + "transferTrigger=" + json.dumps(trigger))
+                self.assertNotIn("transferTrigger", result)
+                self.assertNotIn(secret, json.dumps(result))
+
+        self.assertIsNone(logs.filter_line(
+            "2026-01-01T00:00:00.000Z [PlaybackGateway] "
+            "code=unknown_transfer_event transferTrigger=compatible_request"))
+
+    def test_revalidation_diagnostics_keep_safe_correlation_only(self):
+        """Allow fixed refresh/policy events while discarding credentials and raw failures."""
+        secret = "SYNTHETIC_CREDENTIAL_MUST_NOT_APPEAR"
+        for code, reason in [
+            ("transfer_policy_unavailable", "config_unavailable"),
+            ("playback_info_revalidation_started", "verified_live_session"),
+            ("playback_info_revalidated", "verified_live_session"),
+            ("playback_info_revalidation_failed", "playback_info_superseded"),
+        ]:
+            with self.subTest(code=code):
+                line = (f"2026-01-01T00:00:00.000Z [PlaybackGateway] code={code} "
+                        f"reasonCode={reason} requestId=0123456789abcdef "
+                        "itemRef=abcdef0123456789 sessionRef=fedcba9876543210 "
+                        f"Token={secret} Cookie={secret} URL=https://example.invalid/{secret} "
+                        f"errorType={secret} message=\"private error {secret}\"")
+                result = logs.filter_line(line)
+                self.assertEqual(result, {
+                    "dockerTimestamp": "2026-01-01T00:00:00.000Z",
+                    "code": code,
+                    "reasonCode": reason,
+                    "requestId": "0123456789abcdef",
+                    "itemRef": "abcdef0123456789",
+                    "sessionRef": "fedcba9876543210",
+                })
+                self.assertNotIn(secret, json.dumps(result))
+
     def test_capture_orchestration_keeps_partial_artifacts_and_filters_stderr(self):
         secret = "SYNTHETIC_CREDENTIAL_MUST_NOT_APPEAR"
         with tempfile.TemporaryDirectory() as directory:

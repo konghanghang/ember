@@ -49,12 +49,13 @@ var (
 	ErrRuntimeTimezoneInvalid       = fmt.Errorf("%w: CRON timezone invalid", ErrRuntimeConfig)
 )
 
-// RuntimeSettings resolves Emby plus short-cached Web Surface and runtime log
-// settings already owned by ConfigService without creating a second source.
+// RuntimeSettings resolves Emby and the short-cached Web, logging and transfer
+// policies already owned by ConfigService without creating a second source.
 type RuntimeSettings interface {
 	GetString(string) string
 	PlaybackGatewayWebEnabled(context.Context) (bool, error)
 	LogLevel(context.Context) (string, error)
+	P115TransferTriggerMode(context.Context) (string, error)
 }
 
 // ProductionDependencies are process-owned objects that remain injectable for
@@ -154,6 +155,7 @@ func NewProductionRuntime(
 		PlaybackSessionService: playbackSessionService,
 		WebSurfacePolicy:       dependencies.Settings,
 		LogLevelPolicy:         dependencies.Settings,
+		TransferTriggerPolicy:  dependencies.Settings,
 		Transport:              dependencies.Transport,
 		Logger:                 logger,
 		DebugEnabled:           logpkg.DebugEnabled,

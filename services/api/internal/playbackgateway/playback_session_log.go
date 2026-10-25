@@ -211,18 +211,19 @@ func (gateway *Gateway) logPlaybackSessionEvent(
 	gateway.logger.Printf(format, args...)
 }
 
-// playbackSessionEventKindForRequest recognizes only the three versioned Emby
-// session POST endpoints after root-path normalization.
+// playbackSessionEventKindForRequest accepts client casing on the three fixed
+// session POST endpoints after root-path normalization, but not alternate
+// escaping, trailing slashes or deeper paths.
 func playbackSessionEventKindForRequest(request *http.Request) playbackSessionEventKind {
 	if request == nil || request.URL == nil || request.Method != http.MethodPost {
 		return playbackSessionEventNone
 	}
-	switch request.URL.Path {
-	case "/emby/Sessions/Playing":
+	switch {
+	case exactRequestPathFold(request.URL, "/emby/Sessions/Playing"):
 		return playbackSessionEventStart
-	case "/emby/Sessions/Playing/Progress":
+	case exactRequestPathFold(request.URL, "/emby/Sessions/Playing/Progress"):
 		return playbackSessionEventProgress
-	case "/emby/Sessions/Playing/Stopped":
+	case exactRequestPathFold(request.URL, "/emby/Sessions/Playing/Stopped"):
 		return playbackSessionEventStop
 	default:
 		return playbackSessionEventNone

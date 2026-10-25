@@ -69,6 +69,7 @@ type videoDecision struct {
 	UpstreamStatus     int
 	ProxyErrorCode     string
 	ProviderOperation  string
+	TransferTrigger    string
 	ProviderFailure    directplay.FailureContext
 	AccountRole        string
 	MediaPath          string
@@ -151,6 +152,16 @@ func (gateway *Gateway) serveVideo(
 	}
 
 	proof, proofReason := gateway.lookupPlaybackProof(principal, info.ItemID, info.MediaSourceID, info.PlaySessionID)
+	if proofReason == "playback_proof_expired" || proofReason == "playback_proof_missing" {
+		if refreshed, reason, attempted := gateway.revalidatePlaybackProof(request, principal, accessToken, info); attempted {
+			if reason == "" {
+				proof, proofReason = refreshed, ""
+			} else {
+				gateway.debugf("[PlaybackGateway] level=debug code=playback_info_revalidation_failed requestId=%s itemRef=%s sessionRef=%s reasonCode=%s",
+					decision.RequestID, diagnosticItemRef(principal, info.ItemID), decision.SessionRef, reason)
+			}
+		}
+	}
 	if proofReason != "" {
 		decision.Stage = "proof"
 		decision.ReasonCode = proofReason
@@ -202,7 +213,11 @@ func (gateway *Gateway) serveVideo(
 	candidate, err := gateway.directPlayService.ResolveMediaPath(directContext, directplay.MediaPathResolveRequest{
 		Path: proof.Path, ClientUserAgent: request.UserAgent(), Method: request.Method,
 		UserID: principal.User.ID, MappingID: principal.MappingID, DeviceID: principal.DeviceID, PlaySessionID: leaseSessionID,
-		CanCreateTransfer: func() bool { return gateway.proofs.CanCreateTransfer(proof, principal) },
+		CanCreateTransfer: func() bool {
+			allowed, trigger := gateway.canCreateVideoTransfer(request.Context(), request.Method, proof, principal)
+			decision.TransferTrigger = trigger
+			return allowed
+		},
 	})
 	decision.Routing = candidate.Routing
 	decision.Timing = candidate.Timing
@@ -243,6 +258,9 @@ func (gateway *Gateway) serveVideo(
 	decision.ReasonCode = "direct_play_ready"
 	decision.TaskID = candidate.TaskID
 	decision.Preexisting = candidate.Preexisting
+	if candidate.Preexisting && decision.TransferTrigger == "" {
+		decision.TransferTrigger = "existing_target"
+	}
 	decision.StatusCode = http.StatusFound
 	gateway.proofs.rememberPlaybackSession(proof, principal)
 	writer.Header().Set("Location", candidate.URL)
@@ -669,6 +687,7 @@ func appendVideoDecisionContext(fields []string, decision videoDecision, duratio
 	fields = appendOptionalLogField(fields, "fallbackSource", decision.FallbackSource, false)
 	fields = appendOptionalLogField(fields, "fallbackTarget", decision.FallbackTarget, false)
 	fields = appendOptionalLogField(fields, "providerOperation", decision.ProviderOperation, false)
+	fields = appendOptionalLogField(fields, "transferTrigger", decision.TransferTrigger, false)
 	if stage, reason, status := decision.ProviderFailure.ProviderDetail.Fields(); stage != "" {
 		fields = append(fields, "providerStage="+stage, "providerReason="+reason, "providerHTTPStatus="+strconv.Itoa(status))
 	}

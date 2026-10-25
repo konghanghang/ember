@@ -63,13 +63,19 @@
 
 DirectPlay 先保留现有缓存/目标查重行为；内容锁内再次确认目标缺失后，在转存配额、任务和 preID 之前调用 Gateway 提供的实时许可检查。缺失、过期、已停止或 proof 代次被替换时以 `playback_intent_required` fallback，不创建任务、不占转存配额、不污染账号健康，并释放本次新建 reservation。HEAD 只能复用已有目标。该策略仍允许详情探测复用已有文件及短暂预留播放并发，不表示详情页完全不请求 115。
 
-成功 Stopped 清对应身份/条目/session 的许可，缺少 MediaSourceId 时覆盖该 session 的全部 source；清理不依赖 Redis 租约是否存在。普通 proof、十分钟跨 session 媒体缓存和下载地址缓存保留。许可有效期不续期，TTL 内失败可重试；准入后已经开始的转存不因随后停止或过期回滚。未携明确起播字段的客户端首次目标缺失时回退 Emby，其他播放器兼容性仍需单独验证。
+成功 Stopped 清对应身份/条目/session 的许可，缺少 MediaSourceId 时覆盖该 session 的全部 source；清理不依赖 Redis 租约是否存在。普通 proof、十分钟跨 session 媒体缓存和下载地址缓存保留。许可有效期不续期，TTL 内失败可重试；准入后已经开始的转存不因随后停止或过期回滚。默认严格模式下，未携明确起播字段的客户端首次目标缺失时回退 Emby；管理员兼容策略见下节，其他播放器仍须单独实机验收。
 
 按需 PlaybackInfo 的内部 GET 与客户端响应观察共用 proof 缓存锁和有界请求期令牌。内部 owner 的缓存复查/登记及最终检查/发布均原子完成；内部发布只替换同 mapping/item/device 的整 item 快照并废弃同设备其他内部结果，其他设备可独立完成，不撤销正在读取 body 的客户端观察。客户端响应入口使同 item 的旧 proof/两类旧令牌失效并登记自身，终态在自身令牌仍有效时发布成功或空快照；旧内部 GET 不能覆盖新起播许可，旧客户端失败收尾也不能清掉较新快照。不影响无关 item，过时内部结果不借用新许可；实际 owner/响应观察结束后清理令牌，不增加数据库或持久缓存。
 
 2026-09-22 用户确认当前部署只有 STRM 中的本地路径，没有对应媒体挂载，接受未明确起播的详情探测回退 404。STRM 存在不代表 Emby 可读其目标；这类部署中真正播放的 115 链路失败时也没有 Emby 视频源兜底。该部署取舍不改变 Gateway 透明返回真实状态的合同。同日用户随后反馈正常播放没有问题，确认当前客户端实际可播放；首次新转存、停止后重播等场景尚未逐项取证。
 
 用户账号、套餐来源和 Redis 租约/配额均已有代码与自动化 fake/fixture 证据；本轮自动化验证没有启动项目服务，也没有请求真实 Redis、个人 115 Cookie、Emby/CloudDrive2。用户对正常播放的反馈单独记录，不扩展为上述各子系统均已逐项验收。
+
+#### 首次转存策略
+
+上面的明确起播限制属于默认 `strict` 模式。设置中心可显式选择 `P115_TRANSFER_TRIGGER_MODE=compatible`，让合格原文件视频 GET 在目标缺失时以兼容策略准入；包含可能的详情预读，适用于所有客户端，HEAD 始终不能新转存。锁内实时检查仍核对原 proof 和请求取消，然后才申请配额、创建任务；不改写客户端起播字段，也不生成严格许可。
+
+已有严格许可优先处理；只有需额外兼容授权时才读取五秒配置缓存，单次读取最多 `500ms`。过期读取失败、非法值或缺失配置不新增兼容授权，已有目标复用不依赖该读取；配置正常时修改最多一个五秒窗口收敛，关闭不回滚已开始转存。
 
 ### 1.4 Infuse 详情页读取视频与缺失 thumb 的排查记录
 
@@ -278,7 +284,7 @@ sequenceDiagram
 - Emby 登录响应始终是客户端真相；旁路映射失败不能改写 Emby 成功响应。
 - 固定 OpenAPI API family 的 root path 与已有 `/emby/...` 共用同一门控和处理器；family/前缀大小写不敏感，重复 `/emby/emby/...`、尾斜杠、额外层级和 alternate escaping 失败关闭，根 `/web/...` 留给后续 Web Surface 合同。
 - `System/Info/Public` 仍是原生客户端唯一不要求已映射 AccessToken 和应用头的登录前公开 API；Emby Web 仅额外允许精确 `/emby/Branding/Css.css`、单层语言 JSON、携严格 query 元数据的 Branding Configuration，并让 Public users 与 AuthenticateByName 使用同一严格 query 形态，其他 bootstrap 不随之放宽。
-- 登录后的目标 Web Item Image 可按 Web Surface 合同使用无 Token 的精确 `/emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index；它不参与 Principal、PlaybackInfo 证明或 115 决策，携 Token 图片仍走普通身份门控。
+- 登录后的目标 Web Item Image 可按独立图片合同使用无 Token 的精确 `/emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index；它不参与 Principal、PlaybackInfo 证明或 115 决策，携 Token 图片仍走普通身份门控。
 - 数据库只保存 32 字节 Token HMAC，不保存 AccessToken 明文。
 - 后续受保护请求按 [客户端兼容矩阵](./emby-client-compatibility-matrix.md) 收集 `X-Emby/X-MediaBrowser` 直接 Token Header、严格应用头和固定 query aliases；所有非空来源同值才接受，空值、重复、冲突和非法格式失败关闭。任意 Bearer、Quick Connect/PIN 不进入 Gateway 身份来源。
 - Store 请求取消/deadline 分别返回 `499/504`，只有 driver 保证未发送到 PostgreSQL 的幂等读错误才重试一次；真正存储失败继续 `503` 并记录脱敏连接池统计。
@@ -308,6 +314,12 @@ plain stream 带唯一 MediaSourceId 和 `Static=true`、但没有 PlaySessionId
 6. DirectStreamUrl 缺失或无效时，正常 fallback 使用 Emby 官方 Web 的 `/Videos/{Id}/stream.{Container}`；只有扩展名也无法安全形成时才使用补齐后的 plain stream。
 7. DirectStreamUrl 中的 URL Token 全部删除，改用当前用户 Token Header；原 method、Range、应用 Header 和非播放身份参数继续保留。
 8. resolver 失败时不伪造参数，回到原请求或 4.1 的 Container 降级 fallback。
+
+### 4.3 固定会话续播重新核验
+
+成功 302 为所有已准入视频建立有界 session binding，初始 30 秒，只有成功找到租约的播放事件续期，GET 不续期。固定原文件或 static stream 的 proof 过期后，可以从同身份、item/source/session 的活跃关联发起当前用户 Token 的重新查询；无关联、过期或停止后仍回退。
+
+补查保持原客户端会话，重新验证路径、容器、已知 Size 和播放能力，只发布本会话的证明别名，不重授严格起播许可。固定 session 与 binding 代次参与请求合并，其他会话不共享；停止、新客户端观察、媒体变化和全部等待者取消阻止旧结果发布。失败保留原始视频请求，不能混用 4.2 的 plain stream 补参数及 fallback URL 改写。
 
 ## 5. PlaybackInfo 短期证明
 
@@ -360,7 +372,12 @@ flowchart TD
     CR -- 否 --> F[fallback 客户端请求到 Emby]
     CR -- 是 --> FC[追加 Container<br/>fallback 到 Emby]
     D -- 是 --> E{近期 PlaybackInfo 证明匹配?}
-    E -- 否 --> FB
+    E -- 否 --> RV{证明缺失或过期<br/>且有可信活跃会话关联?}
+    RV -- 否 --> FB
+    RV -- 是 --> RP[当前用户 Token<br/>重新核验固定会话媒体]
+    RP --> RS{媒体一致且发布成功?}
+    RS -- 否 --> FB
+    RS -- 是 --> G
     E -- 是 --> G{Container 匹配且 DirectPlay 可用?}
     G -- 否 --> FB
     G -- 是 --> H[ResolveMediaPath]
@@ -381,7 +398,7 @@ flowchart TD
 - `/emby/Videos/{Id}/stream`、`stream.{Container}` 或 `{StreamFileName}`；
 - 唯一非空 `MediaSourceId`；
 - 唯一非空 `PlaySessionId`；
-- 精确 `Static=true`；或满足[播放代理合同 5.1 节](./emby-playback-proxy-contract.md#51-senplayer-缺失-static-的证据边界)的受限 `original.mp4` 无 Static 请求（只有身份参数、有效本地 MP4 证明）；
+- 精确 `Static=true`；或满足[播放代理合同 5.1 节](./emby-playback-proxy-contract.md#51-senplayer-缺失-static-的证据边界)及 [5.2 节](./emby-playback-proxy-contract.md#52-senplayer-originalmkv-抓包证据2026-10-14)的受限 `original.mp4/mkv` 无 Static 请求（只有身份参数、有效本地对应容器证明，MKV 额外要求正数 Size）；
 - 请求容器与证明中的 Container 匹配；
 - 证明中的 MediaSource 支持 Direct Play。
 
@@ -442,8 +459,8 @@ sequenceDiagram
         alt 其他请求已完成
             Provider-->>DP: 目标文件
         else 仍不存在
-            DP->>Gateway: 实时检查原 proof 的新增转存许可
-            break HEAD 或许可缺失/失效
+            DP->>Gateway: 实时转存准入：原 proof + 明确许可或兼容策略
+            break HEAD 或转存准入不通过
                 DP-->>Gateway: playback_intent_required，释放本次新 reservation
             end
             DP->>Redis: ReserveTransfer(user, hourly/day limits, attempt)
@@ -524,6 +541,8 @@ downurl 和通用 GET 的响应体读取中断在调用方 context 有效时是 
 115 fallback 始终使用权威 Emby 请求，并保留 method、path、query、Range、User-Agent、`X-Emby-Token`、应用认证 Header 和其他 Emby Header。Gateway 的 fallback 决策只表示请求已交给 Emby，不代表客户端已经完整播放。
 
 ### 8.3 单条决策日志
+
+新增 `transferTrigger` 固定枚举：`explicit_playback` 为明确起播准入、`compatible_request` 为兼容策略准入、`existing_target` 为不经过新转存准入的目标复用、`policy_denied` 为策略拒绝。只有经过对应分支时输出，不把配置读取异常伪装成 115 账号故障。Debug `transfer_policy_unavailable` 定位模式读取失败；`playback_info_revalidation_started/revalidated/revalidation_failed` 关联可信固定会话的重新核验，不代表客户端已出画。
 
 2026-09-08 起，实际进入 DirectPlay 的请求在同一条最终决策日志附带分阶段耗时，默认 Info 可见，失败和取消也保留已执行阶段；未执行阶段不输出，亚毫秒操作可显示 `0`，用 `Calls` 区分是否执行。字段全部为固定名称与数值，不增加第二条 Info 决策日志：
 

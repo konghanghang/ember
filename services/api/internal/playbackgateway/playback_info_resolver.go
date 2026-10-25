@@ -101,15 +101,40 @@ func (gateway *Gateway) resolvePlaybackInfoOnce(
 		return onDemandPlaybackInfo{}, "playback_info_busy"
 	}
 	defer gateway.proofs.ReleasePublication(guard)
+	resolved, proofs, reasonCode := gateway.fetchPlaybackInfo(request, principal, accessToken, itemID, mediaSourceID)
+	if reasonCode != "" {
+		return onDemandPlaybackInfo{}, reasonCode
+	}
+	var published bool
+	resolved.ProofCount, published = gateway.proofs.PublishOnDemand(guard, proofs)
+	if !published {
+		return onDemandPlaybackInfo{}, "playback_info_superseded"
+	}
+	if proof, ok := gateway.proofs.Lookup(principal.MappingID, itemID, mediaSourceID, resolved.PlaySessionID); ok && proof.intentOriginSession != "" {
+		gateway.debugf("[PlaybackGateway] code=playback_transfer_intent_inherited itemRef=%s sessionRef=%s reasonCode=matching_client_intent",
+			diagnosticItemRef(principal, itemID), diagnosticSessionRef(principal, proof.PlaySessionID))
+	}
+	gateway.logger.Printf("[PlaybackGateway] code=playback_info_resolved_on_demand mappingId=%s itemId=%s proofCount=%d",
+		principal.MappingID, itemID, resolved.ProofCount)
+	return resolved, ""
+}
+
+// fetchPlaybackInfo performs the shared bounded Emby GET with the current
+// user's Token. Callers validate identity and own all proof publication rules.
+func (gateway *Gateway) fetchPlaybackInfo(
+	request *http.Request,
+	principal embytoken.Principal,
+	accessToken, itemID, mediaSourceID string,
+) (onDemandPlaybackInfo, []PlaybackProof, string) {
 	requestURL, err := gateway.onDemandPlaybackInfoURL(itemID, principal.User.EmbyID)
 	if err != nil {
-		return onDemandPlaybackInfo{}, "invalid_request"
+		return onDemandPlaybackInfo{}, nil, "invalid_request"
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), onDemandPlaybackInfoTimeout)
 	defer cancel()
 	upstreamRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
 	if err != nil {
-		return onDemandPlaybackInfo{}, "invalid_request"
+		return onDemandPlaybackInfo{}, nil, "invalid_request"
 	}
 	copyOnDemandPlaybackInfoHeaders(upstreamRequest.Header, request.Header)
 	embeddedToken, embeddedPresent, _ := protectedApplicationAccessToken(request.Header)
@@ -124,15 +149,15 @@ func (gateway *Gateway) resolvePlaybackInfoOnce(
 	response, err := gateway.transport.RoundTrip(upstreamRequest)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			return onDemandPlaybackInfo{}, "request_canceled"
+			return onDemandPlaybackInfo{}, nil, "request_canceled"
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			return onDemandPlaybackInfo{}, "deadline_exceeded"
+			return onDemandPlaybackInfo{}, nil, "deadline_exceeded"
 		}
-		return onDemandPlaybackInfo{}, "upstream_unavailable"
+		return onDemandPlaybackInfo{}, nil, "upstream_unavailable"
 	}
 	if response == nil {
-		return onDemandPlaybackInfo{}, "upstream_unavailable"
+		return onDemandPlaybackInfo{}, nil, "upstream_unavailable"
 	}
 	if response.Body != nil {
 		defer response.Body.Close()
@@ -144,37 +169,26 @@ func (gateway *Gateway) resolvePlaybackInfoOnce(
 			itemID,
 			response.StatusCode,
 		)
-		return onDemandPlaybackInfo{}, "upstream_status"
+		return onDemandPlaybackInfo{}, nil, "upstream_status"
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" || response.Body == nil {
-		return onDemandPlaybackInfo{}, "response_invalid"
+		return onDemandPlaybackInfo{}, nil, "response_invalid"
 	}
 	encoded, err := io.ReadAll(io.LimitReader(response.Body, gateway.maxPlaybackInfoResponseBytes+1))
 	if err != nil || int64(len(encoded)) > gateway.maxPlaybackInfoResponseBytes {
-		return onDemandPlaybackInfo{}, "response_too_large"
+		return onDemandPlaybackInfo{}, nil, "response_too_large"
 	}
 	decoded, err := decodeResponseSidecar(encoded, response.Header.Get("Content-Encoding"), gateway.maxPlaybackInfoResponseBytes)
 	if err != nil {
-		return onDemandPlaybackInfo{}, "response_decode_failed"
+		return onDemandPlaybackInfo{}, nil, "response_decode_failed"
 	}
 	resolved, proofs, err := parseOnDemandPlaybackInfo(decoded, principal, itemID, mediaSourceID)
 	if err != nil {
-		return onDemandPlaybackInfo{}, "response_unusable"
+		return onDemandPlaybackInfo{}, nil, "response_unusable"
 	}
 	gateway.logPlaybackInfoMediaSourceObservations(principal.MappingID, itemID, []playbackInfoMediaSourceObservation{resolved.MediaSource})
-	var published bool
-	resolved.ProofCount, published = gateway.proofs.PublishOnDemand(guard, proofs)
-	if !published {
-		return onDemandPlaybackInfo{}, "playback_info_superseded"
-	}
-	if proof, ok := gateway.proofs.Lookup(principal.MappingID, itemID, mediaSourceID, resolved.PlaySessionID); ok && proof.intentOriginSession != "" {
-		gateway.debugf("[PlaybackGateway] code=playback_transfer_intent_inherited itemRef=%s sessionRef=%s reasonCode=matching_client_intent",
-			diagnosticItemRef(principal, itemID), diagnosticSessionRef(principal, proof.PlaySessionID))
-	}
-	gateway.logger.Printf("[PlaybackGateway] code=playback_info_resolved_on_demand mappingId=%s itemId=%s proofCount=%d",
-		principal.MappingID, itemID, resolved.ProofCount)
-	return resolved, ""
+	return resolved, proofs, ""
 }
 
 // reuseOnDemandPlaybackProof completes a missing-session URL from the exact

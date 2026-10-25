@@ -71,11 +71,12 @@ type playbackProofKey struct {
 // observation. It prevents late completion replacing a newer item snapshot and
 // lives only until its owner returns; client observations supersede internals.
 type playbackProofPublishGuard struct {
-	mappingID   string
-	itemID      string
-	deviceID    string
-	client      bool
-	invalidated bool
+	mappingID    string
+	itemID       string
+	deviceID     string
+	client       bool
+	invalidated  bool
+	revalidation *playbackRevalidationSnapshot
 }
 
 type playbackProofLookupStatus uint8
@@ -87,15 +88,16 @@ const (
 )
 
 type playbackProofCache struct {
-	mu           sync.Mutex
-	entries      map[playbackProofKey]PlaybackProof
-	intents      map[playbackProofKey]playbackIntentGrant
-	sessions     map[playbackProofKey]playbackSessionBinding
-	maxEntries   int
-	ttl          time.Duration
-	now          func() time.Time
-	generation   uint64
-	publications map[*playbackProofPublishGuard]struct{}
+	mu            sync.Mutex
+	entries       map[playbackProofKey]PlaybackProof
+	intents       map[playbackProofKey]playbackIntentGrant
+	sessions      map[playbackProofKey]playbackSessionBinding
+	maxEntries    int
+	ttl           time.Duration
+	now           func() time.Time
+	generation    uint64
+	publications  map[*playbackProofPublishGuard]struct{}
+	revalidations map[string]*playbackRevalidationCall
 }
 
 // newPlaybackProofCache creates a bounded cache with no background goroutine;

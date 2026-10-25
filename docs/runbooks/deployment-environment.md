@@ -91,7 +91,9 @@
 
 Gateway 必须保持两个地址边界：`EMBY_URL` 是 API/Gateway 容器访问原始 Emby 的内部地址；`NEXT_PUBLIC_EMBY_URL` 是用户和播放器看到的 Gateway 公网 HTTPS 地址。二者指向同一公网 Gateway 会形成代理回环，原始 Emby 继续公开则会形成安全旁路。
 
-`PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心数据库配置，不是环境变量。默认开启；管理员保存后，Gateway 最多在 5 秒内同步新值。已识别的 `/`、`/favicon.ico`、`/web` 页面/静态资源、单层语言 JSON、精确 `/emby/Branding/Css.css`、携严格 Web query 元数据的精确 `GET /emby/Branding/Configuration`，以及无 Token 的精确 `GET/HEAD /emby/Items/{Id}/Images/{Type}` 与可选规范非负 int32 Index 优先读取进程缓存，TTL 到期后的并发刷新只查询一次数据库；刷新错误同样退避 5 秒。关闭时不访问上游，浏览器 `GET` 收到禁止缓存且不依赖 Emby 静态资源的中文友好 HTML `404`，`HEAD` 只返回等价响应头；刷新读取失败期间返回空体 `503`。Infuse 等客户端 API、视频、携 Token 图片和根 WebSocket 不受该开关影响。
+`PLAYBACK_GATEWAY_WEB_ENABLED` 是设置中心数据库配置，不是环境变量。默认开启；管理员保存后，Gateway 最多在 5 秒内同步新值。已识别的 `/`、`/favicon.ico`、`/web` 页面/静态资源、单层语言 JSON、精确 `/emby/Branding/Css.css`、携严格 Web query 元数据的精确 `GET /emby/Branding/Configuration`优先读取进程缓存，TTL 到期后的并发刷新只查询一次数据库；刷新错误同样退避 5 秒。关闭时不访问上游，浏览器 `GET` 收到禁止缓存且不依赖 Emby 静态资源的中文友好 HTML `404`，`HEAD` 只返回等价响应头；刷新读取失败期间返回空体 `503`。Infuse 等客户端 API、视频、图片和根 WebSocket 不受该开关影响。既有精确 `/emby` 无 Token 图片 GET/HEAD 已独立透传 Emby，不读取网页开关；无效 Token 仍拒绝，root 无 Token 图片没有扩展。
+
+`P115_TRANSFER_TRIGGER_MODE` 同样只由设置中心数据库管理，不作为环境变量部署。默认 `strict`；管理员选择 `compatible` 后，合格原文件视频 GET 可以触发首次转存，也包括可能的预读，HEAD 仍禁止新转存。配置正常时最多一个五秒窗口收敛；读取失败或非法值不沿用旧兼容授权，严格许可与已有目标复用保持，关闭不回滚已开始转存。
 
 `REDIS_URL` 同样不进入设置中心，可能包含认证信息。官方 Compose 缺省为 `redis://redis:6379/0`，内置 Redis 开启 AOF 并挂载 `redis_data`；API 用它读取账号/用户用量，Gateway 用它执行 Lua 原子准入和转存记账。客户端不做版本探测，连接/读/写超时固定 `500ms` 且关闭自动重试。当前只支持单 Gateway；数据丢失后缺失 Key 按零处理，不做历史恢复。
 

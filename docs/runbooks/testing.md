@@ -50,6 +50,17 @@ go test ./internal/services/directplay ./internal/services/p115quota ./internal/
 go test -race ./internal/services/directplay ./internal/services/p115quota ./internal/playbackgateway -skip Integration -count=1 -timeout=90s
 ```
 
+Gateway 客户端兼容与首次转存策略专项在 `services/api` 执行：
+
+```bash
+go test ./internal/config ./internal/playbackgateway ./internal/services/directplay ./internal/services/p115quota ./internal/services/p115account -skip 'Integration|PostgreSQL' -count=1 -timeout=180s
+go test -race ./internal/config ./internal/playbackgateway ./internal/services/directplay ./internal/services/p115quota ./internal/services/p115account -skip 'Integration|PostgreSQL' -count=1 -timeout=180s
+```
+
+重点覆盖 `client_surface_compatibility_test.go` 的图片与会话、`playback_revalidation_test.go` 的活跃关联/原会话/发布乱序/等待者取消、`transfer_trigger_test.go` 的模式准入和生产装配，以及配置目录的策略保存/五秒刷新/失败关闭。首次转存仍复用现有 DirectPlay 配额、锁内查重、HEAD 与失败释放回归；不使用真实 Emby、115、Redis 或数据库。
+
+设置中心在 `services/web` 执行 `npm run test -- src/views/admin/SettingsView.spec.ts` 和 `npm run build`；采集日志在仓库根执行 `python3 -B -m unittest discover -s scripts/gateway-capture/tests -v`，必须覆盖归因枚举和新诊断 code 的脱敏边界。以上验证不启动服务，也不代替 Yamby/SenPlayer/Infuse 真实客户端验收。
+
 2026-09-16 上述两种范围均通过。新增回归覆盖独立 locker 在真实 `database/sql` 小连接池上的 fake 锁竞争/取消、A 租约过期后 B 占满额度时 A 不得返回直链，以及 HEAD/Playing 不重建丢失租约。`TestIntegrationPostgresContentLockSmallPoolWaiterCancellation` 已保留为真实 PostgreSQL 专项，但本轮专用库不可达，用户确认采用 fake 验收，未执行该用例；不能将 fake driver 或 miniredis 结果写成数据库/真实 Redis 已验证。
 
 2026-09-21 已在专用 `ember_integration_codex` PostgreSQL 数据库补跑 DirectPlay 专项：

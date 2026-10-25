@@ -17,6 +17,8 @@ _CODES.update({"direct_play_step", "video_request_started", "video_context_resol
                "playback_transfer_intent_retained", "playback_transfer_intent_recorded",
                "playback_transfer_intent_inherited", "source_directory_resolved"})
 _CODES.update({"video_original_mp4_accepted", "video_original_mkv_accepted"})
+_CODES.update({"transfer_policy_unavailable", "playback_info_revalidation_started",
+               "playback_info_revalidated", "playback_info_revalidation_failed"})
 _NUMERIC = {"itemId", "statusCode", "upstreamStatus", "rangeStart", "rangeEnd", "rangeLength",
             "positionTicks", "proofCount", "accountReservedStreams", "accountActiveStreams",
             "accountOccupiedStreams", "userReservedStreams", "userActiveStreams", "userOccupiedStreams",
@@ -36,6 +38,7 @@ _TEXT = {"code", "level", "event", "result", "forwardState", "decision", "reason
 _FIELD_STATES = {"isPlayback", "enableDirectPlay", "enableDirectStream", "enableTranscoding",
                  "autoOpenLiveStream", "startTimeTicks", "currentPlaySessionId", "mediaSourceId", "deviceProfile"}
 _STATE_VALUES = {"missing", "null", "true", "false", "zero", "positive", "empty", "present", "invalid"}
+_TRANSFER_TRIGGERS = {"explicit_playback", "compatible_request", "existing_target", "policy_denied"}
 _BOOL = {"found", "isPaused", "positionPresent", "proofAccepted", "intentGranted", "IsPlayback",
          "success", "connectionReused", "shared"}
 
@@ -60,6 +63,8 @@ def filter_line(line):
         elif key in _FIELD_STATES and value in _STATE_VALUES:
             row[key] = value
         elif key == "evidence" and value in {"local_mp4_proof", "local_mkv_proof"}:
+            row[key] = value
+        elif key == "transferTrigger" and value in _TRANSFER_TRIGGERS:
             row[key] = value
         elif key in _TEXT and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", value):
             row[key] = value

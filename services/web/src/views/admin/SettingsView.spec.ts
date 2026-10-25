@@ -392,6 +392,63 @@ describe('SettingsView', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('部署与密钥保存成功')
   })
 
+  it('115 首次转存策略默认严格，兼容与严格模式可往返保存并保持服务端选中态', async () => {
+    const transferConfig = createConfigItem({
+      key: 'P115_TRANSFER_TRIGGER_MODE',
+      group: 'media',
+      groupLabel: '媒体集成',
+      label: '115 首次转存策略',
+      description: '兼容模式下，视频预读也可能触发转存',
+      type: 'enum',
+      options: [
+        { label: '严格模式', value: 'strict' },
+        { label: '兼容模式', value: 'compatible' },
+      ],
+      source: 'default',
+      value: 'strict',
+      restartRequired: false,
+      allowEmpty: false,
+      emptyValueMode: 'not_allowed',
+    })
+    const compatibleConfig = createConfigItem({ ...transferConfig, source: 'database', value: 'compatible' })
+    const strictConfig = createConfigItem({ ...transferConfig, source: 'database', value: 'strict' })
+    vi.mocked(getConfigs)
+      .mockResolvedValueOnce({ data: [transferConfig] })
+      .mockResolvedValueOnce({ data: [compatibleConfig] })
+      .mockResolvedValueOnce({ data: [strictConfig] })
+    vi.mocked(updateConfig)
+      .mockResolvedValueOnce(compatibleConfig)
+      .mockResolvedValueOnce(strictConfig)
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('115 首次转存策略')
+    expect(wrapper.find('button[aria-label="查看115 首次转存策略说明"]').exists()).toBe(true)
+    expect(findButton(wrapper, '严格模式').attributes('aria-pressed')).toBe('true')
+    expect(findButton(wrapper, '兼容模式').attributes('aria-pressed')).toBe('false')
+
+    for (const [selected, value, unselected] of [
+      ['兼容模式', 'compatible', '严格模式'],
+      ['严格模式', 'strict', '兼容模式'],
+    ] as const) {
+      await findButton(wrapper, selected).trigger('click')
+      await findButton(wrapper, '保存本组配置').trigger('click')
+      await flushPromises()
+
+      expect(updateConfig).toHaveBeenLastCalledWith('P115_TRANSFER_TRIGGER_MODE', { value })
+      expect(findButton(wrapper, selected).attributes('aria-pressed')).toBe('true')
+      expect(findButton(wrapper, unselected).attributes('aria-pressed')).toBe('false')
+      expect(findButton(wrapper, '保存本组配置').attributes('disabled')).toBeDefined()
+    }
+
+    expect(updateConfig).toHaveBeenCalledTimes(2)
+    expect(getConfigs).toHaveBeenCalledTimes(3)
+    expect(ElMessage.success).toHaveBeenNthCalledWith(1, '媒体集成保存成功')
+    expect(ElMessage.success).toHaveBeenNthCalledWith(2, '媒体集成保存成功')
+    wrapper.unmount()
+  })
+
   it('多行配置项会渲染为 textarea 并按字符串保存', async () => {
     vi.mocked(getConfigs)
       .mockResolvedValueOnce({

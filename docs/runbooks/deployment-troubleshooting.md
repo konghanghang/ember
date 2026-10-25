@@ -153,15 +153,23 @@ docker compose --profile gateway logs --tail=200 redis ember-gateway
 
 部署认证修复后，按同一客户端依次复测：登录、媒体库与图片加载、打开详情、实际播放、字幕及进度/停止上报。分别记录“通过/失败/未执行”，并确认 Infuse、SenPlayer 的既有使用路径没有回归；`302/200/206/204` 日志只能证明对应 HTTP 步骤，不能代替播放器实际出画、声音或字幕结果。把部署提交、双方版本、平台、日期/业务时区及分项结论补入客户端兼容矩阵，未实测项不得写成已兼容。
 
-#### Yamby 首页图片短暂返回 503
+#### Yamby 首页图片返回 404 或 503
 
-无 Token 的精确 `/emby/Items/{Id}/Images/{Type}[/{Index}]` 请求走 Web Surface 开关。出现图片 `503` 时，先关联 `web_surface_config_unavailable` 与附近的数据库日志：
+现有合同允许的无 Token 精确 `/emby/Items/{Id}/Images/{Type}[/{Index}]` GET/HEAD 已从 Web Surface 分离，使用 `route=item_image` 原样请求 Emby。关闭网页或网页配置读取失败不再决定图片响应；携有效 Token 图片仍走普通身份门控。
 
-- `reasonCode=request_canceled`：配置加载者的请求已取消，不代表存储故障；该错误不缓存或共享，健康等待者使用自己的 context 重新加载。
-- `reasonCode=request_deadline_exceeded`：该次配置请求超时，同样不写入共享错误缓存。
-- `reasonCode=config_unavailable`：其他配置读取故障，仍失败关闭；真实存储故障按原有 5 秒窗口退避，不能通过放开图片绕过开关。
+- 图片仍出现 `route=emby_web`、`web_surface_disabled` 或 `web_surface_config_unavailable`：先核对部署提交和流量实际进入的实例；这是旧版图片与网页开关耦合的路径，不应通过开启整套 Web UI 修复新版本图片。
+- `route=item_image` 的 `404/503`：核对同一请求的 Emby 响应或上游传输错误，不再归因于网页配置缓存；HTTP 成功仍需确认图片类型和实际显示。
+- `token_header_invalid/token_rejected`：检查 Token 载体及实时用户资格；无效 Token 不能降级成匿名图片。root 无 Token `/Items/.../Images/...`、编码/尾斜杠/非法 Index 等未获合同许可的形态仍受保护。
 
-等待者可以独立取消，不会取消仍在读取配置的其他请求。部署修复后由操作者重新进入客户端首页复测，同时核对图片状态与实际显示；相同路径稍后出现 `200`，只能证明后一次请求成功，不能代替首页显示验收。旧日志没有 `reasonCode` 时，不能仅凭 `errorType=*errors.errorString` 判断取消；须与同一时间的数据库 `context canceled` 证据对照，禁止输出完整 SQL 参数或连接串。
+历史版本因配置请求取消而短暂返回图片 `503` 的排查记录仍只适用于旧链路。真实 Web 页面仍使用原五秒缓存及取消隔离规则，不能仅凭 `errorType=*errors.errorString` 判断取消。部署后由操作者重新进入客户端首页确认图片显示，未执行时保留“未实机验收”。
+
+#### SenPlayer 没有首次转存或续播转回 Emby
+
+在设置中心“媒体集成 → 115 首次转存策略”核对 `P115_TRANSFER_TRIGGER_MODE`。默认严格模式仍要求 JSON 明确起播，SenPlayer 已记录的 query false/body 缺字段只允许复用已有目标。管理员显式选择兼容模式后，合格原文件视频 GET 可以首次转存；此模式也可能让详情预读消耗转存额度，HEAD 始终不新增转存。
+
+最终视频日志的 `transferTrigger=explicit_playback|compatible_request|existing_target|policy_denied` 分别表示明确许可、兼容准入、既有目标复用和策略拒绝。策略拒绝仍使用 `playback_intent_required`；若伴随 Debug `transfer_policy_unavailable`，应检查配置读取或非法值，不能当作 115 账号失效。正常配置更新最多经过一个五秒缓存窗口收敛，已开始的转存不会因关闭模式回滚。
+
+固定会话五分钟后重新请求 Range 时，只有先前成功 302 建立、并由成功租约事件续活的 session binding 才能补查。查看 `playback_info_revalidation_started/revalidated/revalidation_failed` 与最终视频决策；无活跃关联继续回退。补查使用当前用户 Token，保持原会话并核对媒体身份，不延长旧 proof 或重授严格起播许可。停止、关联过期、身份/媒体变化、所有等待者取消或较新客户端响应会阻止旧结果发布。
 
 #### 慢起播、重复 GET 与播放名额异常
 

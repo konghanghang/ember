@@ -82,6 +82,8 @@ python3 -B scripts/gateway-capture/gateway_capture.py logs \
 
 远端先按 code/字段白名单过滤，原始 Docker 日志不传回本机。输出包括白名单内的加速决策、源目录/取链/Range/秒传 POST 计时、PlaybackInfo 意图状态、租约及停止事件；密码、Cookie、Token、原始 path、媒体路径、完整响应和任意 message 不输出。未知 code 或字段会被忽略；日志定义增加后需同步过滤规则。
 
+首次转存归因仅保留 `transferTrigger=explicit_playback|compatible_request|existing_target|policy_denied` 四种固定值，未知值丢弃。白名单同时接纳 `transfer_policy_unavailable`、`playback_info_revalidation_started`、`playback_info_revalidated` 和 `playback_info_revalidation_failed`，用于区分策略拒绝、已有目标复用和固定会话重新核验；继续丢弃原始错误类型/消息、凭据和 URL。
+
 原文件匹配诊断保留固定 `video_original_mp4_accepted` / `video_original_mkv_accepted` 与 `evidence=local_mp4_proof|local_mkv_proof`；未知 evidence 丢弃。匹配诊断只证明受限路径通过媒体证明检查，不证明随后一定返回 302 或已经完成播放。当前日志工具的 `_CODES` 尚未包含 `playback_canceled`，这类新 Info 取消决策会被过滤；筛选结果缺行不能证明未取消。需要判断取消时，使用已授权取得的 Gateway 脱敏日志核对 `499`/取消 code，不放开未知 code 或原始日志透传。
 
 ## 4. 离线分析与对照

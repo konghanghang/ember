@@ -52,9 +52,9 @@ func (gateway *Gateway) playbackGatewayWebEnabled(ctx context.Context) (bool, er
 	return gateway.webSurfacePolicy.PlaybackGatewayWebEnabled(ctx)
 }
 
-// isEmbyWebSurfaceRequest recognizes browser entry/static GET and HEAD requests,
-// the exact query-gated Branding bootstrap and no-Token item images. Protected
-// WebAppService APIs and root WebSocket upgrades stay on the Token-gated path.
+// isEmbyWebSurfaceRequest recognizes browser entry/static GET and HEAD requests
+// and the exact query-gated Branding bootstrap. Native images do not use this
+// policy; protected WebAppService APIs and root WebSockets stay Token-gated.
 func isEmbyWebSurfaceRequest(request *http.Request) bool {
 	if request == nil || request.URL == nil ||
 		(request.Method != http.MethodGet && request.Method != http.MethodHead) ||
@@ -78,16 +78,27 @@ func isEmbyWebSurfaceRequest(request *http.Request) bool {
 		_, carrier, metadataOK := extractAuthenticationApplicationMetadata(request)
 		return carrier == applicationMetadataQuery && metadataOK
 	}
-	if isEmbyWebItemImagePath(path) {
-		return true
-	}
 	return strings.HasPrefix(path, "/web/") && !hasRootWebAppAPIReservedPrefix(path)
 }
 
-// isEmbyWebItemImagePath accepts the exact /emby item image shape with an
-// optional canonical non-negative int32 Index emitted by the target Web
-// client. Mutation, root, empty and deeper segments remain protected.
-func isEmbyWebItemImagePath(path string) bool {
+// isAnonymousItemImageRequest preserves the observed no-Token /emby image
+// contract without applying the Web UI policy or downgrading invalid Tokens.
+func isAnonymousItemImageRequest(request *http.Request) bool {
+	if request == nil || request.URL == nil ||
+		(request.Method != http.MethodGet && request.Method != http.MethodHead) ||
+		request.URL.EscapedPath() != request.URL.Path || !isEmbyItemImagePath(request.URL.Path) {
+		return false
+	}
+	if _, reasonCode, tokenPresent := extractProtectedRequestAccessToken(request); tokenPresent || reasonCode != "token_missing" {
+		return false
+	}
+	return true
+}
+
+// isEmbyItemImagePath accepts the exact observed /emby image shape and an
+// optional canonical non-negative int32 Index. Root, empty and deeper paths
+// remain protected, regardless of whether the client is a browser or player.
+func isEmbyItemImagePath(path string) bool {
 	segments := strings.Split(path, "/")
 	if (len(segments) != 6 && len(segments) != 7) || segments[0] != "" || !strings.EqualFold(segments[1], "emby") ||
 		!strings.EqualFold(segments[2], "Items") || !strings.EqualFold(segments[4], "Images") {
@@ -96,12 +107,12 @@ func isEmbyWebItemImagePath(path string) bool {
 	if !validPublicPathSegment(segments[3]) || !validPublicPathSegment(segments[5]) {
 		return false
 	}
-	return len(segments) == 6 || validEmbyWebImageIndex(segments[6])
+	return len(segments) == 6 || validEmbyItemImageIndex(segments[6])
 }
 
-// validEmbyWebImageIndex accepts the canonical non-negative int32 path value
+// validEmbyItemImageIndex accepts the canonical non-negative int32 path value
 // from the fixed ImageService contract and rejects alternate numeric spellings.
-func validEmbyWebImageIndex(value string) bool {
+func validEmbyItemImageIndex(value string) bool {
 	if value == "0" {
 		return true
 	}

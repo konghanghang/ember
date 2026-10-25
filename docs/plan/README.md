@@ -43,7 +43,7 @@
 - `architecture/p115-personal-account-routing-and-redis-quotas.md`（阶段 0–3 已落地，基础 PostgreSQL 集成于 2026-09-05 通过；后续 DirectPlay 数据库专项于 2026-09-21 补跑通过，受控真实外部验收仍待完成）
 - [115 新增转存起播许可](./architecture/p115-transfer-playback-intent.md)（代码与自动化已完成，保留已有文件和跨会话缓存复用；待受控客户端验收）
 - [SenPlayer 原文件播放兼容](./architecture/senplayer-original-stream-compatibility.md)（2026-10-14：受限 MKV 匹配与本地 mock/race 验证完成，抓包工具同步原文件识别；保留预读不新增转存，待部署后实机验收）
-- [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（2026-10-25：方案已确认，待实施；分批处理图片与网页开关解耦、会话路径大小写、固定会话续播重新核验，以及默认严格、管理员可开启的全局转存兼容模式；开启后接受预读可能触发转存）
+- [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（2026-10-25：三批次实现与本地验证完成，待真实客户端验收；已处理图片与网页开关解耦、会话路径大小写、固定会话续播重新核验，以及默认严格、管理员可开启的全局转存兼容模式；开启后接受预读可能触发转存）
 - `architecture/runtime-settings-cache-evolution.md`
 - `bot-telegram/notification-mute-rules.md`
 - [群签到与双途径保号](./bot-telegram/group-checkin-retention.md)（2026-10-08：产品规则已确认，待实施；单开关、共用 N 天，观看或签到任一达标即可保号；签到默认 5 天，PostgreSQL 明细保留 3 个日历月并自动清理；权益保存首次检查日期，修改规则不重置起点；技术检查与迁移验证待执行）

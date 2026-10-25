@@ -18,7 +18,7 @@ type playbackSessionBinding struct {
 // rememberPlaybackSession records an admitted redirect's verified client
 // identity. A stopped/replaced in-flight proof cannot publish a late binding.
 func (cache *playbackProofCache) rememberPlaybackSession(proof PlaybackProof, principal embytoken.Principal) {
-	if cache == nil || cache.now == nil || cache.maxEntries <= 0 || (proof.intentOriginSession == "" && !proof.transferIntent) {
+	if cache == nil || cache.now == nil || cache.maxEntries <= 0 {
 		return
 	}
 	cache.mu.Lock()
@@ -110,6 +110,14 @@ func (cache *playbackProofCache) stopPlaybackBinding(principal embytoken.Princip
 	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
+	for guard := range cache.publications {
+		if snapshot := guard.revalidation; snapshot != nil && snapshot.key.itemID == item &&
+			(source == "" || snapshot.key.mediaSourceID == source) &&
+			(snapshot.key.playSessionID == session || snapshot.source.PlaySessionID == session) &&
+			playbackProofMatchesPrincipal(snapshot.source, principal) {
+			guard.invalidated = true
+		}
+	}
 	for key, binding := range cache.sessions {
 		if key.itemID == item && (source == "" || key.mediaSourceID == source) &&
 			(key.playSessionID == session || binding.source.PlaySessionID == session) && playbackProofMatchesPrincipal(binding.source, principal) {

@@ -1232,6 +1232,23 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize:          normalizeBoolean,
 		},
 		{
+			Key:                P115TransferTriggerModeKey,
+			DisableEnvFallback: true,
+			Group:              ConfigGroupMedia,
+			GroupLabel:         "媒体集成",
+			Label:              "115 首次转存策略",
+			Description:        "兼容模式下，视频预读也可能触发转存",
+			Type:               ConfigValueEnum,
+			DefaultValue:       TransferTriggerModeStrict,
+			Editable:           true,
+			Options: []ConfigOption{
+				{Label: "严格模式", Value: TransferTriggerModeStrict},
+				{Label: "兼容模式", Value: TransferTriggerModeCompatible},
+			},
+			Validate:  validateEnum(TransferTriggerModeStrict, TransferTriggerModeCompatible),
+			Normalize: normalizeP115TransferTriggerMode,
+		},
+		{
 			Key:                "TMDB_API_KEY",
 			EnvKey:             "TMDB_API_KEY",
 			DisableEnvFallback: true,

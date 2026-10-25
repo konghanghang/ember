@@ -75,6 +75,7 @@ type Config struct {
 	PlaybackSessionService PlaybackSessionService
 	WebSurfacePolicy       WebSurfacePolicy
 	LogLevelPolicy         LogLevelPolicy
+	TransferTriggerPolicy  TransferTriggerPolicy
 	Transport              http.RoundTripper
 	Logger                 *log.Logger
 	Debug                  bool
@@ -94,6 +95,7 @@ type Gateway struct {
 	playbackSessionService         PlaybackSessionService
 	webSurfacePolicy               WebSurfacePolicy
 	logLevelPolicy                 LogLevelPolicy
+	transferTriggerPolicy          TransferTriggerPolicy
 	applyLogLevel                  func(string) error
 	debugEnabled                   func() bool
 	logLevelRefreshFailed          atomic.Bool
@@ -120,6 +122,7 @@ const (
 	routeItemDetail
 	routeVideo
 	routeWebSurface
+	routeItemImage
 )
 
 type requestRouteContext struct {
@@ -186,6 +189,7 @@ func New(config Config) (*Gateway, error) {
 		playbackSessionService:         config.PlaybackSessionService,
 		webSurfacePolicy:               config.WebSurfacePolicy,
 		logLevelPolicy:                 config.LogLevelPolicy,
+		transferTriggerPolicy:          config.TransferTriggerPolicy,
 		applyLogLevel:                  applyLogLevel,
 		debugEnabled:                   debugEnabled,
 		logger:                         logger,
@@ -208,8 +212,8 @@ func New(config Config) (*Gateway, error) {
 	return gateway, nil
 }
 
-// ServeHTTP normalizes versioned API paths, applies depth-exact bootstrap and
-// authentication exceptions, then fails closed before any protected proxy.
+// ServeHTTP keeps exact anonymous image and Web routes separate, normalizes
+// versioned API paths, then fails closed before any protected proxy.
 func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	startedAt := time.Now().UTC()
 	logLevelContext := context.Background()
@@ -228,6 +232,13 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		gateway.logPlaybackSessionEvent(playbackSessionEvent, statusWriter.statusCode, playbackSessionForwardAttempted, startedAt)
 		gateway.logRequestCompletion(requestLog, routeCode, pathMode, statusWriter.statusCode, startedAt)
 	}()
+	if isAnonymousItemImageRequest(request) {
+		routeCode = routeKindCode(routeItemImage)
+		routeContext := requestRouteContext{kind: routeItemImage, pathMode: requestPathModePassthrough}
+		ctx := context.WithValue(request.Context(), requestRouteContextKey{}, routeContext)
+		gateway.proxy.ServeHTTP(statusWriter, request.WithContext(ctx))
+		return
+	}
 	if isEmbyWebSurfaceRequest(request) {
 		routeCode = routeKindCode(routeWebSurface)
 		gateway.serveWebSurface(statusWriter, request)
