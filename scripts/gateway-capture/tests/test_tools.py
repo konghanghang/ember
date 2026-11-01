@@ -160,9 +160,9 @@ class CollectionTests(unittest.TestCase):
                 self.assertNotIn("evidence", tampered)
 
     def test_transfer_trigger_keeps_only_fixed_admission_categories(self):
-        """Preserve the four admission outcomes without creating a free-text secret channel."""
+        """Preserve fixed admission outcomes without creating a free-text secret channel."""
         prefix = "2026-01-01T00:00:00.000Z [PlaybackGateway] code=direct_play_redirect "
-        for trigger in ["explicit_playback", "compatible_request", "existing_target", "policy_denied"]:
+        for trigger in ["explicit_playback", "session_playback", "compatible_request", "existing_target", "policy_denied"]:
             with self.subTest(trigger=trigger):
                 result = logs.filter_line(prefix + f"transferTrigger={trigger}")
                 self.assertEqual(result["transferTrigger"], trigger)
@@ -178,6 +178,18 @@ class CollectionTests(unittest.TestCase):
         self.assertIsNone(logs.filter_line(
             "2026-01-01T00:00:00.000Z [PlaybackGateway] "
             "code=unknown_transfer_event transferTrigger=compatible_request"))
+
+    def test_playback_activity_keeps_only_safe_event_metadata(self):
+        """Retain activity/type categories without raw body or header values."""
+        prefix = "2026-01-01T00:00:00.000Z [PlaybackGateway] "
+        for code in ["playback_activity_observed", "playback_event_received"]:
+            row = logs.filter_line(prefix + f"code={code} contentType=other event=progress "
+                                   "itemId=123 snapshotState=recorded cookie=SYNTHETIC_SECRET body=SYNTHETIC_SECRET")
+            self.assertEqual(row["contentType"], "other")
+            self.assertEqual(row["event"], "progress")
+            self.assertNotIn("SYNTHETIC_SECRET", json.dumps(row))
+            poisoned = logs.filter_line(prefix + f"code={code} contentType=SYNTHETIC_SECRET")
+            self.assertNotIn("contentType", poisoned)
 
     def test_revalidation_diagnostics_keep_safe_correlation_only(self):
         """Allow fixed refresh/policy events while discarding credentials and raw failures."""

@@ -215,10 +215,10 @@ func (gateway *Gateway) serveVideo(
 	candidate, err := gateway.directPlayService.ResolveMediaPath(directContext, directplay.MediaPathResolveRequest{
 		Path: proof.Path, ClientUserAgent: request.UserAgent(), Method: request.Method,
 		UserID: principal.User.ID, MappingID: principal.MappingID, DeviceID: principal.DeviceID, PlaySessionID: leaseSessionID,
-		CanCreateTransfer: func() bool {
-			allowed, trigger := gateway.canCreateVideoTransfer(request.Context(), request.Method, proof, principal)
+		AuthorizeTransfer: func() directplay.TransferAuthorization {
+			authorization, trigger := gateway.authorizeVideoTransfer(request.Context(), request.Method, proof, principal)
 			decision.TransferTrigger = trigger
-			return allowed
+			return authorization
 		},
 	})
 	decision.Routing = candidate.Routing
@@ -534,6 +534,8 @@ func directPlayReasonCode(err error) string {
 		return "source_read_timeout"
 	case errors.Is(err, directplay.ErrTransferQuotaExceeded):
 		return "transfer_quota_exceeded"
+	case errors.Is(err, directplay.ErrCompatibilityQuotaExceeded):
+		return "compatibility_quota_exceeded"
 	case errors.Is(err, directplay.ErrPlaybackIntentRequired):
 		return "playback_intent_required"
 	case errors.Is(err, directplay.ErrTransferQuotaCommitFailed):

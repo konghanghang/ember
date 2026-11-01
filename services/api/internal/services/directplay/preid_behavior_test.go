@@ -29,9 +29,9 @@ func TestPreIDWarmCacheCannotBypassAdmission(t *testing.T) {
 			wantErr := ErrPlaybackIntentRequired
 			switch stage {
 			case "missing intent":
-				request.CanCreateTransfer = nil
+				request.AuthorizeTransfer = nil
 			case "denied intent":
-				request.CanCreateTransfer = func() bool { return false }
+				request.AuthorizeTransfer = func() TransferAuthorization { return TransferAuthorization{Allowed: false} }
 			case "HEAD":
 				fixture.reserveLease(t, request)
 				request.Method = "HEAD"

@@ -30,9 +30,9 @@ func TestPlaybackIntentDenialHasNoTransferSideEffects(t *testing.T) {
 			service := newRoutedDirectPlayForTest(t, accounts, provider, leases)
 			request := routedMediaPathRequest(http.MethodGet, "probe")
 			checks := 0
-			request.CanCreateTransfer = func() bool { checks++; return false }
+			request.AuthorizeTransfer = func() TransferAuthorization { checks++; return TransferAuthorization{Allowed: false} }
 			if absent {
-				request.CanCreateTransfer = nil
+				request.AuthorizeTransfer = nil
 			}
 
 			candidate, err := service.ResolveMediaPath(context.Background(), request)
@@ -67,14 +67,14 @@ func TestPlaybackIntentDirectEntryDefaultsToDeny(t *testing.T) {
 			provider := newFakeProvider()
 			store := &fakeTaskStore{}
 			service := newServiceWithDependencies(fakeAccountLoader{}, provider, store, &fakeTaskLocker{})
-			resolve := func(intent func() bool) (RedirectCandidate, error) {
+			resolve := func(intent func() TransferAuthorization) (RedirectCandidate, error) {
 				if mapped {
 					request := fixtureResolveRequest()
-					request.CanCreateTransfer = intent
+					request.AuthorizeTransfer = intent
 					return service.Resolve(context.Background(), request)
 				}
 				request := fixtureMediaPathResolveRequest()
-				request.CanCreateTransfer = intent
+				request.AuthorizeTransfer = intent
 				return service.ResolveMediaPath(context.Background(), request)
 			}
 			if _, err := resolve(nil); !errors.Is(err, ErrPlaybackIntentRequired) {
@@ -83,7 +83,7 @@ func TestPlaybackIntentDirectEntryDefaultsToDeny(t *testing.T) {
 			if store.beginCount != 0 || len(provider.rangeRequests) != 0 || len(provider.uploadRequests) != 0 {
 				t.Fatal("direct entry created a task or called the transfer Provider")
 			}
-			if candidate, err := resolve(func() bool { return true }); err != nil || candidate.Preexisting || store.beginCount != 1 {
+			if candidate, err := resolve(func() TransferAuthorization { return TransferAuthorization{Allowed: true} }); err != nil || candidate.Preexisting || store.beginCount != 1 {
 				t.Fatalf("authorized Resolve error=%v preexisting=%t tasks=%d", err, candidate.Preexisting, store.beginCount)
 			}
 		})
@@ -102,7 +102,10 @@ func TestPlaybackIntentAllowsReuseBeforeAndInsideContentLock(t *testing.T) {
 			}
 			service := newRoutedDirectPlayForTest(t, &fakeRoutedAccountRuntime{}, provider, p115quota.NewMemoryLeaseStore())
 			request := routedMediaPathRequest(http.MethodGet, "reuse")
-			request.CanCreateTransfer = func() bool { t.Error("existing target checked transfer intent"); return false }
+			request.AuthorizeTransfer = func() TransferAuthorization {
+				t.Error("existing target checked transfer intent")
+				return TransferAuthorization{Allowed: false}
+			}
 			candidate, err := service.ResolveMediaPath(context.Background(), request)
 			if err != nil || candidate.URL == "" || !candidate.Preexisting {
 				t.Fatalf("reuse candidate=%t preexisting=%t error=%v", candidate.URL != "", candidate.Preexisting, err)
@@ -141,7 +144,7 @@ func TestSenPlayerReuseWithoutTransfer(t *testing.T) {
 			request := routedMediaPathRequest(http.MethodGet, "session-1")
 			request.ClientUserAgent = "SenPlayer/6.0.4"
 			checks := 0
-			request.CanCreateTransfer = func() bool { checks++; return false }
+			request.AuthorizeTransfer = func() TransferAuthorization { checks++; return TransferAuthorization{Allowed: false} }
 			if test.warm {
 				if candidate, err := service.ResolveMediaPath(context.Background(), request); err != nil || !candidate.Preexisting {
 					t.Fatalf("warm reuse error=%v preexisting=%t", err, candidate.Preexisting)
@@ -191,14 +194,14 @@ func TestPlaybackIntentAllowsFirstTransferAndCrossSessionCacheReuse(t *testing.T
 	service := newRoutedDirectPlayForTest(t, &fakeRoutedAccountRuntime{}, provider, p115quota.NewMemoryLeaseStore())
 	request := routedMediaPathRequest(http.MethodGet, "play")
 	checks := 0
-	request.CanCreateTransfer = func() bool { checks++; return true }
+	request.AuthorizeTransfer = func() TransferAuthorization { checks++; return TransferAuthorization{Allowed: true} }
 	candidate, err := service.ResolveMediaPath(context.Background(), request)
 	if err != nil || candidate.URL == "" || candidate.Preexisting || checks != 1 {
 		t.Fatalf("first transfer error=%v preexisting=%t checks=%d", err, candidate.Preexisting, checks)
 	}
 	beforeCalls := len(provider.calls)
 	request.PlaySessionID = "later-probe"
-	request.CanCreateTransfer = nil
+	request.AuthorizeTransfer = nil
 	candidate, err = service.ResolveMediaPath(context.Background(), request)
 	if err != nil || !candidate.Preexisting || candidate.Routing.TransferChecked || len(provider.calls) != beforeCalls {
 		t.Fatalf("cache reuse error=%v preexisting=%t quota=%t calls=%v", err, candidate.Preexisting, candidate.Routing.TransferChecked, provider.calls)
@@ -236,7 +239,7 @@ func TestPlaybackIntentConcurrentProbeReusesAuthorizedTransfer(t *testing.T) {
 		t.Fatal("authorized transfer did not reach download")
 	}
 	probe := routedMediaPathRequest(http.MethodGet, "concurrent-probe")
-	probe.CanCreateTransfer = nil
+	probe.AuthorizeTransfer = nil
 	go func() { c, err := service.ResolveMediaPath(ctx, probe); waiter <- outcome{c, err} }()
 	key := mediaRequestKey(service.serverID, request)
 	for {
@@ -297,7 +300,7 @@ func TestPlaybackIntentRevokedDuringContentLockWait(t *testing.T) {
 	allowed.Store(true)
 	var checks atomic.Int32
 	request := routedMediaPathRequest(http.MethodGet, "expired-while-waiting")
-	request.CanCreateTransfer = func() bool { checks.Add(1); return allowed.Load() }
+	request.AuthorizeTransfer = func() TransferAuthorization { checks.Add(1); return TransferAuthorization{Allowed: allowed.Load()} }
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	done := make(chan error, 1)
@@ -337,7 +340,7 @@ func TestPlaybackIntentDenialPreservesActiveLease(t *testing.T) {
 				t.Fatal(err)
 			}
 			request.Method = method
-			request.CanCreateTransfer = func() bool { return method == http.MethodHead }
+			request.AuthorizeTransfer = func() TransferAuthorization { return TransferAuthorization{Allowed: method == http.MethodHead} }
 			if _, err := service.ResolveMediaPath(context.Background(), request); !errors.Is(err, ErrPlaybackIntentRequired) {
 				t.Fatalf("missing target error=%v", err)
 			}

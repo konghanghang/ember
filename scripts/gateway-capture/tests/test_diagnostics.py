@@ -151,7 +151,7 @@ class DiagnosticLogTests(unittest.TestCase):
                 "playback_proof_missing", "playback_proof_expired", "playback_proof_mismatch", "media_not_direct_play", "direct_play_disabled"],
             "direct_play_fallback": ["invalid_request", "path_not_mapped", "account_unavailable", "personal_account_missing",
                 "account_concurrency_exceeded", "redis_unavailable", "head_lease_missing", "playback_route_changed",
-                "playback_lease_lost", "playback_resolve_timeout", "source_read_timeout", "transfer_quota_exceeded",
+                "playback_lease_lost", "playback_resolve_timeout", "source_read_timeout", "transfer_quota_exceeded", "compatibility_quota_exceeded",
                 "playback_intent_required", "transfer_quota_commit_failed", "accounts_same", "provider_unavailable",
                 "rapid_upload_unavailable", "target_unavailable", "file_unavailable", "download_incompatible",
                 "store_unavailable", "lock_unavailable", "provider_protocol"],

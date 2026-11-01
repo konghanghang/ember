@@ -18,7 +18,7 @@ _CODES.update({"direct_play_step", "video_request_started", "video_context_resol
                "playback_transfer_intent_inherited", "source_directory_resolved"})
 _CODES.update({"video_original_mp4_accepted", "video_original_mkv_accepted"})
 _CODES.update({"transfer_policy_unavailable", "playback_info_revalidation_started",
-               "playback_info_revalidated", "playback_info_revalidation_failed"})
+               "playback_info_revalidated", "playback_info_revalidation_failed", "playback_activity_observed"})
 _CODES.update({"request_completed", "authentication_request_shape", "authentication_upstream_response",
                "application_header_parse_failed", "playback_fallback", "playback_rejected", "playback_canceled"})
 _NUMERIC = {"itemId", "statusCode", "upstreamStatus", "rangeStart", "rangeEnd", "rangeLength",
@@ -41,7 +41,7 @@ _TEXT = {"code", "level", "event", "result", "forwardState", "decision", "reason
 _FIELD_STATES = {"isPlayback", "enableDirectPlay", "enableDirectStream", "enableTranscoding",
                  "autoOpenLiveStream", "startTimeTicks", "currentPlaySessionId", "mediaSourceId", "deviceProfile"}
 _STATE_VALUES = {"missing", "null", "true", "false", "zero", "positive", "empty", "present", "invalid"}
-_TRANSFER_TRIGGERS = {"explicit_playback", "compatible_request", "existing_target", "policy_denied"}
+_TRANSFER_TRIGGERS = {"explicit_playback", "session_playback", "compatible_request", "existing_target", "policy_denied"}
 _BOOL = {"found", "isPaused", "positionPresent", "proofAccepted", "intentGranted", "IsPlayback",
          "success", "connectionReused", "shared"}
 
@@ -70,7 +70,7 @@ VIDEO_REASONS = {
     "target_unavailable", "download_incompatible", "store_unavailable", "lock_unavailable", "direct_play_ready",
     "personal_account_missing", "account_concurrency_exceeded", "redis_unavailable", "head_lease_missing",
     "playback_route_changed", "playback_lease_lost", "playback_resolve_timeout", "source_read_timeout",
-    "transfer_quota_exceeded", "playback_intent_required", "transfer_quota_commit_failed",
+    "transfer_quota_exceeded", "compatibility_quota_exceeded", "playback_intent_required", "transfer_quota_commit_failed",
 }
 _PARSE_REASONS = {"empty_header", "header_too_long", "invalid_utf8", "header_line_break", "unsupported_scheme",
                   "expected_field", "invalid_field", "duplicate_field", "expected_equals", "invalid_value",

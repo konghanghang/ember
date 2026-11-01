@@ -98,6 +98,15 @@ type playbackProofCache struct {
 	generation    uint64
 	publications  map[*playbackProofPublishGuard]struct{}
 	revalidations map[string]*playbackRevalidationCall
+	lifecycle     map[playbackProofKey]playbackProofLifecycle
+}
+
+// playbackProofLifecycle keeps delivery/stop observations separate from the
+// immutable authorized media snapshot; each record belongs to one generation.
+type playbackProofLifecycle struct {
+	generation uint64
+	admitted   bool
+	stopped    bool
 }
 
 // newPlaybackProofCache creates a bounded cache with no background goroutine;
@@ -108,6 +117,7 @@ func newPlaybackProofCache(maxEntries int, ttl time.Duration) *playbackProofCach
 		intents:      make(map[playbackProofKey]playbackIntentGrant),
 		sessions:     make(map[playbackProofKey]playbackSessionBinding),
 		publications: make(map[*playbackProofPublishGuard]struct{}),
+		lifecycle:    make(map[playbackProofKey]playbackProofLifecycle),
 		ttl:          ttl, now: time.Now,
 	}
 }
@@ -159,8 +169,21 @@ func (cache *playbackProofCache) recordLocked(proofs []PlaybackProof, now time.T
 			proof.transferIntentUntil = time.Time{}
 		}
 		cache.entries[key] = proof
+		state := playbackProofLifecycle{generation: proof.generation}
+		origin := proof.intentOriginSession
+		if origin == "" {
+			origin = proof.PlaySessionID
+		}
+		for bindingKey, binding := range cache.sessions {
+			if binding.leaseBacked && bindingKey.playSessionID == origin && matchingIntentMedia(binding.source, proof) {
+				state.admitted = true
+				break
+			}
+		}
+		cache.lifecycle[key] = state
 		written++
 	}
+	cache.pruneExpiredLocked(now)
 	return written
 }
 
@@ -504,6 +527,11 @@ func (cache *playbackProofCache) pruneExpiredLocked(now time.Time) {
 	for key, proof := range cache.entries {
 		if !proof.ExpiresAt.After(now) {
 			delete(cache.entries, key)
+		}
+	}
+	for key, state := range cache.lifecycle {
+		if proof, exists := cache.entries[key]; !exists || proof.generation != state.generation {
+			delete(cache.lifecycle, key)
 		}
 	}
 }

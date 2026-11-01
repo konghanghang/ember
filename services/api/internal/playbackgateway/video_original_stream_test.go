@@ -77,7 +77,7 @@ func TestGatewayOriginalMP4UsesExactProof(t *testing.T) {
 				if response.Code != http.StatusFound || upstreamCalls != 0 || len(calls) != 1 {
 					t.Fatalf("status=%d upstream=%d direct=%d", response.Code, upstreamCalls, len(calls))
 				}
-				if calls[0].Path != proof.Path || calls[0].CanCreateTransfer == nil || calls[0].CanCreateTransfer() {
+				if calls[0].Path != proof.Path || calls[0].AuthorizeTransfer == nil || calls[0].AuthorizeTransfer().Allowed {
 					t.Fatal("original stream must use the exact proof without granting transfer intent")
 				}
 				assertSingleDecisionLog(t, logs.String(), "redirect", "direct_play", "direct_play_ready")
@@ -192,7 +192,7 @@ func TestGatewaySenPlayerOriginalMP4RetainsQueryIntentBoundary(t *testing.T) {
 	if response.Code != http.StatusFound || len(calls) != 1 || upstreamCalls != 1 {
 		t.Fatalf("status=%d direct=%d upstream=%d", response.Code, len(calls), upstreamCalls)
 	}
-	if calls[0].CanCreateTransfer() {
+	if calls[0].AuthorizeTransfer().Allowed {
 		t.Fatal("query-only IsPlayback granted transfer intent")
 	}
 	if !strings.Contains(logs.String(), "code=video_original_mp4_accepted") {

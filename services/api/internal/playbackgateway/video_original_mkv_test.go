@@ -83,7 +83,7 @@ func TestGatewayOriginalMKVUsesExactProof(t *testing.T) {
 				if response.Code != http.StatusFound || upstreamCalls != 0 || len(calls) != 1 {
 					t.Fatalf("status=%d upstream=%d direct=%d", response.Code, upstreamCalls, len(calls))
 				}
-				if calls[0].Path != proof.Path || calls[0].Method != method || calls[0].CanCreateTransfer == nil || calls[0].CanCreateTransfer() {
+				if calls[0].Path != proof.Path || calls[0].Method != method || calls[0].AuthorizeTransfer == nil || calls[0].AuthorizeTransfer().Allowed {
 					t.Fatal("candidate changed method/path or granted new transfer intent")
 				}
 				if !strings.Contains(test.target, "Static=true") && !strings.Contains(logs.String(), "code=video_original_mkv_accepted") {
@@ -160,7 +160,7 @@ func TestGatewaySenPlayerOriginalMKVRetainsIntentBoundary(t *testing.T) {
 			directCalls, fallbackCalls := 0, 0
 			direct := transferIntentDirectPlayFunc(func(_ context.Context, r directplay.MediaPathResolveRequest) (directplay.RedirectCandidate, error) {
 				directCalls++
-				if r.Path != "/mnt/media/fixture.mkv" || r.Method != http.MethodGet || r.UserID != "user-1" || r.MappingID != "mapping-1" || r.DeviceID != "device-1" || r.PlaySessionID != "session-1" || r.CanCreateTransfer == nil || r.CanCreateTransfer() {
+				if r.Path != "/mnt/media/fixture.mkv" || r.Method != http.MethodGet || r.UserID != "user-1" || r.MappingID != "mapping-1" || r.DeviceID != "device-1" || r.PlaySessionID != "session-1" || r.AuthorizeTransfer == nil || r.AuthorizeTransfer().Allowed {
 					t.Error("MKV reuse lost its identity or granted transfer intent")
 				}
 				if !existing {

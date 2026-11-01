@@ -74,6 +74,8 @@ go test -race ./internal/playbackgateway -run '^TestGateway(ApplicationAuthoriza
 
 随后复用前述 Gateway/DirectPlay/配额专项覆盖固定会话 live binding、旧 plain stream 权威 fallback、停止、许可和租约回归，再执行 `go test ./... -skip 'Integration|PostgreSQL' -count=1`、`go vet ./...` 与 `go build ./...`。本增量不新增 Web UI、配置或 migration，也不实施 CORS；测试不得启动服务或请求真实 Emby、115、Redis、数据库。最终执行结果记录在[主计划第 7 节](../plan/architecture/gateway-client-compatibility.md#7-后续协议兼容改进2026-10-25)，不能用定向通过替代整体验证。
 
+2026-11-01 的通用 JSON 事件/回退活动/兼容子限额增量沿用上述命令：`session_content_type_test.go` 覆盖缺失及误标 Header、原请求保真和上游失败，`fallback_activity_test.go` 覆盖无 115 租约的 proof 重新核验、停止/身份/源/重复字段及丢失租约不得重新分类；`compatibility_limits_test.go` 覆盖共享 500ms 读取预算、配置失败和 proof 替换。DirectPlay `compatibility_quota_test.go` 验证真实编排中的多范围记账/退款与写入前拒绝，p115quota `transfer_scopes_test.go` 将同一并发/跨日/幂等合同分别运行于 memory fake 和 miniredis Lua；不依赖真实 Redis。首次转存归因新增 `session_playback`，配额拒绝为 `compatibility_quota_exceeded`；采集白名单/脱敏必须一并回归。
+
 真实验收仍须经授权部署后按客户端与版本记录登录、选源、首播/复用、拖动/续播、字幕、停止及 CDN Range 的分项结果；fake 响应、Gateway `302/206`、上游会话 `204` 不证明首帧或完整播放。既有 Infuse/SenPlayer 样本只覆盖当时版本与请求形态。
 
 采集、缓存原因与 preID 复用增量在 `services/api` 执行：

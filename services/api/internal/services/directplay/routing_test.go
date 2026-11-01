@@ -84,7 +84,7 @@ func routedMediaPathRequest(method, sessionID string) MediaPathResolveRequest {
 	return MediaPathResolveRequest{
 		Path: "/mnt/cloudNAS/115lifetime/Media/fixture.mkv", ClientUserAgent: "Infuse-Fixture",
 		Method: method, UserID: "user-1", MappingID: "mapping-1", DeviceID: "device-1", PlaySessionID: sessionID,
-		CanCreateTransfer: func() bool { return true },
+		AuthorizeTransfer: func() TransferAuthorization { return TransferAuthorization{Allowed: true} },
 	}
 }
 

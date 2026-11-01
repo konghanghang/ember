@@ -1249,6 +1249,27 @@ func getConfigDefinitions() []ConfigDefinition {
 			Normalize: normalizeP115TransferTriggerMode,
 		},
 		{
+			Key: "P115_COMPAT_USER_HOURLY_LIMIT", DisableEnvFallback: true,
+			Group: ConfigGroupMedia, GroupLabel: "媒体集成", Label: "兼容转存每用户小时上限",
+			Description: "缺少明确起播或匹配播放事件的兼容转存子限额，仍受套餐总配额约束",
+			Type:        ConfigValueInteger, DefaultValue: "1", Editable: true, MinValue: intPtr(1), MaxValue: intPtr(100), Validate: validateIntRange(1, 100),
+		},
+		{
+			Key: "P115_COMPAT_USER_DAILY_LIMIT", DisableEnvFallback: true,
+			Group: ConfigGroupMedia, GroupLabel: "媒体集成", Label: "兼容转存每用户每日上限",
+			Type: ConfigValueInteger, DefaultValue: "3", Editable: true, MinValue: intPtr(1), MaxValue: intPtr(1000), Validate: validateIntRange(1, 1000),
+		},
+		{
+			Key: "P115_COMPAT_ACCOUNT_HOURLY_LIMIT", DisableEnvFallback: true,
+			Group: ConfigGroupMedia, GroupLabel: "媒体集成", Label: "兼容转存每播放账号小时上限",
+			Type: ConfigValueInteger, DefaultValue: "10", Editable: true, MinValue: intPtr(1), MaxValue: intPtr(100), Validate: validateIntRange(1, 100),
+		},
+		{
+			Key: "P115_COMPAT_ACCOUNT_DAILY_LIMIT", DisableEnvFallback: true,
+			Group: ConfigGroupMedia, GroupLabel: "媒体集成", Label: "兼容转存每播放账号每日上限",
+			Type: ConfigValueInteger, DefaultValue: "30", Editable: true, MinValue: intPtr(1), MaxValue: intPtr(1000), Validate: validateIntRange(1, 1000),
+		},
+		{
 			Key:                "TMDB_API_KEY",
 			EnvKey:             "TMDB_API_KEY",
 			DisableEnvFallback: true,

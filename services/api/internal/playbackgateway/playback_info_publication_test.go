@@ -23,12 +23,12 @@ func TestLateInternalPlaybackInfoCannotReplaceClientIntent(t *testing.T) {
 	videoStarted, releaseVideo := make(chan struct{}), make(chan struct{})
 	intentAfterGET := make(chan bool, 1)
 	service := transferIntentDirectPlayFunc(func(_ context.Context, request directplay.MediaPathResolveRequest) (directplay.RedirectCandidate, error) {
-		if request.CanCreateTransfer == nil || !request.CanCreateTransfer() {
+		if request.AuthorizeTransfer == nil || !request.AuthorizeTransfer().Allowed {
 			t.Error("explicit playback did not enter DirectPlay with intent")
 		}
 		close(videoStarted)
 		<-releaseVideo
-		allowed := request.CanCreateTransfer != nil && request.CanCreateTransfer()
+		allowed := request.AuthorizeTransfer != nil && request.AuthorizeTransfer().Allowed
 		intentAfterGET <- allowed
 		if !allowed {
 			return directplay.RedirectCandidate{}, directplay.ErrPlaybackIntentRequired

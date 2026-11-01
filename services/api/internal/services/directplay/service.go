@@ -39,9 +39,9 @@ type ResolveRequest struct {
 	downloadScope   *downloadCacheScope
 	SourceFile      p115integration.FilePathQuery
 	ClientUserAgent string
-	// CanCreateTransfer rechecks explicit intent or configured video admission
+	// AuthorizeTransfer rechecks explicit intent or configured video admission
 	// only when a new target is needed under the content lock. Nil denies creation.
-	CanCreateTransfer func() bool
+	AuthorizeTransfer func() TransferAuthorization
 }
 
 // MediaPathResolveRequest is the future gateway input before source-account
@@ -54,9 +54,9 @@ type MediaPathResolveRequest struct {
 	MappingID       string
 	DeviceID        string
 	PlaySessionID   string
-	// CanCreateTransfer authorizes only a new retained transfer; nil still
+	// AuthorizeTransfer authorizes only a new retained transfer; nil still
 	// permits existing targets and cached candidates. HEAD never creates files.
-	CanCreateTransfer func() bool
+	AuthorizeTransfer func() TransferAuthorization
 }
 
 // MediaPathMapping keeps the exact Emby path and the source-account mapping
@@ -170,12 +170,13 @@ type taskLock interface {
 }
 
 type transferQuotaContext struct {
-	UserID         string
-	HourlyLimit    int
-	DailyLimit     int
-	Checked        bool
-	UsageAvailable bool
-	Usage          p115quota.TransferUsage
+	UserID           string
+	HourlyLimit      int
+	DailyLimit       int
+	Checked          bool
+	UsageAvailable   bool
+	Usage            p115quota.TransferUsage
+	AdditionalScopes []p115quota.TransferQuotaScope
 }
 
 // Service serializes retained playback transfers and returns a validated 115
@@ -342,7 +343,7 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 	// HEAD may inspect an existing lease and file, but cannot create a retained
 	// target even when the caller still has a valid playback intent.
 	if request.Method == http.MethodHead {
-		request.CanCreateTransfer = nil
+		request.AuthorizeTransfer = nil
 	}
 	if service.playbackRouter != nil {
 		candidate, err := service.resolveRoutedMediaPath(ctx, request, fileQuery, location)
@@ -362,7 +363,7 @@ func (service *Service) ResolveMediaPath(ctx context.Context, request MediaPathR
 	}
 	candidate, err = service.resolveWithAccounts(ctx, source, playback, ResolveRequest{
 		SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
-		CanCreateTransfer: request.CanCreateTransfer,
+		AuthorizeTransfer: request.AuthorizeTransfer,
 	}, nil)
 	candidate.PathMapping = mapping
 	return candidate, err
@@ -552,7 +553,7 @@ func (service *Service) resolveRoutedMediaPath(
 		candidate, err = service.resolveWithAccounts(
 			ctx, source, playback,
 			ResolveRequest{SourceFile: fileQuery, ClientUserAgent: request.ClientUserAgent,
-				CanCreateTransfer: request.CanCreateTransfer,
+				AuthorizeTransfer: request.AuthorizeTransfer,
 				downloadScope:     &downloadCacheScope{serverID: service.serverID, userID: request.UserID, mappingID: request.MappingID, deviceID: request.DeviceID}},
 			quotaContext,
 		)
@@ -747,7 +748,7 @@ func (service *Service) resolveWithAccounts(
 		}
 	}()
 
-	lockedTarget, taskID, preexisting, err := service.resolveUnderLock(ctx, source, playback, *sourceFile, query, quota, request.CanCreateTransfer)
+	lockedTarget, taskID, preexisting, err := service.resolveUnderLock(ctx, source, playback, *sourceFile, query, quota, request.AuthorizeTransfer)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
@@ -808,7 +809,7 @@ func (service *Service) resolveUnderLock(
 	sourceFile p115integration.File,
 	query p115integration.FileQuery,
 	quota *transferQuotaContext,
-	canCreateTransfer func() bool,
+	authorizeTransfer func() TransferAuthorization,
 ) (p115integration.File, string, bool, error) {
 	target, found, err := service.searchTarget(ctx, playback, query)
 	if err != nil {
@@ -819,9 +820,20 @@ func (service *Service) resolveUnderLock(
 	}
 	// Recheck after both the lock wait and target lookup, before consuming quota
 	// or beginning any task, preID read or retained Provider write.
-	if canCreateTransfer == nil || !canCreateTransfer() {
+	authorization := TransferAuthorization{}
+	if authorizeTransfer != nil {
+		authorization = authorizeTransfer()
+	}
+	if !authorization.Allowed {
 		log.Printf("[DirectPlay] 跳过新增转存 code=playback_intent_required playbackAccountId=%s", playback.Credential.AccountID)
 		return p115integration.File{}, "", false, ErrPlaybackIntentRequired
+	}
+	scopes, scopeErr := service.compatibilityQuotaScopes(quota, playback, authorization.CompatibilityLimits)
+	if scopeErr != nil {
+		return p115integration.File{}, "", false, scopeErr
+	}
+	if quota != nil {
+		quota.AdditionalScopes = scopes
 	}
 
 	now := service.now().UTC()
@@ -838,11 +850,12 @@ func (service *Service) resolveUnderLock(
 		reservation, err := service.transferQuotas.ReserveTransfer(ctx, p115quota.TransferReserveRequest{
 			UserID: quota.UserID, AttemptID: transferAttemptID,
 			HourlyLimit: quota.HourlyLimit, DailyLimit: quota.DailyLimit, DayStart: dayStart, DayEnd: dayEnd,
+			AdditionalScopes: quota.AdditionalScopes,
 		}, now)
 		finishQuota()
 		quota.Checked = true
 		quota.Usage = reservation.Usage
-		quota.UsageAvailable = err == nil || errors.Is(err, p115quota.ErrTransferQuotaExceeded)
+		quota.UsageAvailable = err == nil || errors.Is(err, p115quota.ErrTransferQuotaExceeded) || errors.Is(err, p115quota.ErrCompatibilityQuotaExceeded)
 		if err != nil {
 			return p115integration.File{}, "", false, mapTransferQuotaError(err)
 		}
@@ -852,7 +865,7 @@ func (service *Service) resolveUnderLock(
 		releasePending = true
 		defer func() {
 			if releasePending {
-				service.releaseTransferReservation(quota.UserID, transferAttemptID)
+				service.releaseTransferReservations(quota, transferAttemptID)
 			}
 		}()
 	}
@@ -955,7 +968,7 @@ func (service *Service) resolveUnderLock(
 		// original five-minute TTL remains the only automatic release path.
 		releasePending = false
 		finishCommit := measureStage(ctx, "transferCommit")
-		commit, commitErr := service.commitTransferWithRetry(quota.UserID, transferAttemptID)
+		commit, commitErr := service.commitTransferWithRetry(quota.UserID, transferAttemptID, quota.AdditionalScopes...)
 		finishCommit()
 		if commitErr != nil {
 			log.Printf("[DirectPlay] level=warn code=transfer_quota_commit_failed userId=%q taskId=%q playbackAccountId=%q usageAvailable=false errorType=%T",
@@ -990,15 +1003,17 @@ func newTransferAttemptID() (string, error) {
 
 // releaseTransferReservation refunds failed attempts independently of request
 // cancellation; Redis failures leave the original pending TTL to reclaim usage.
-func (service *Service) releaseTransferReservation(userID, attemptID string) {
+func (service *Service) releaseTransferReservation(userID, scopeID, attemptID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), reservationReleaseTimeout)
 	defer cancel()
-	if _, err := service.transferQuotas.ReleaseTransfer(ctx, userID, attemptID, service.now().UTC()); err != nil {
+	if _, err := service.transferQuotas.ReleaseTransfer(ctx, scopeID, attemptID, service.now().UTC()); err != nil {
 		log.Printf("[DirectPlay] level=warn code=transfer_quota_release_failed userId=%q errorType=%T", userID, err)
 	}
 }
 
-func (service *Service) commitTransferWithRetry(userID, attemptID string) (p115quota.TransferCommitResult, error) {
+// commitTransferWithRetry commits total and sublimit successes atomically under
+// the same independent bounded budget, preserving late Provider success.
+func (service *Service) commitTransferWithRetry(userID, attemptID string, scopes ...p115quota.TransferQuotaScope) (p115quota.TransferCommitResult, error) {
 	budget := service.transferCommitBudget
 	if budget <= 0 {
 		budget = transferCommitTimeout
@@ -1014,6 +1029,7 @@ func (service *Service) commitTransferWithRetry(userID, attemptID string) (p115q
 		dayStart, dayEnd := p115quota.DayWindow(now, service.businessTimezone)
 		result, err := service.transferQuotas.CommitTransfer(ctx, p115quota.TransferCommitRequest{
 			UserID: userID, AttemptID: attemptID, DayStart: dayStart, DayEnd: dayEnd,
+			AdditionalScopes: scopes,
 		}, now)
 		if err == nil {
 			return result, nil
@@ -1032,6 +1048,9 @@ func (service *Service) commitTransferWithRetry(userID, attemptID string) (p115q
 }
 
 func mapTransferQuotaError(err error) error {
+	if errors.Is(err, p115quota.ErrCompatibilityQuotaExceeded) {
+		return ErrCompatibilityQuotaExceeded
+	}
 	if errors.Is(err, p115quota.ErrTransferQuotaExceeded) {
 		return ErrTransferQuotaExceeded
 	}

@@ -736,7 +736,7 @@ func fixtureResolveRequest() ResolveRequest {
 			RootID: "0", RelativePath: "Media/fixture.mkv",
 		},
 		ClientUserAgent:   "Infuse-Fixture",
-		CanCreateTransfer: func() bool { return true },
+		AuthorizeTransfer: func() TransferAuthorization { return TransferAuthorization{Allowed: true} },
 	}
 }
 
@@ -745,7 +745,7 @@ func fixtureMediaPathResolveRequest() MediaPathResolveRequest {
 	return MediaPathResolveRequest{
 		Path:              "/mnt/cloudNAS/115lifetime/Media/fixture.mkv",
 		ClientUserAgent:   "Infuse-Fixture",
-		CanCreateTransfer: func() bool { return true },
+		AuthorizeTransfer: func() TransferAuthorization { return TransferAuthorization{Allowed: true} },
 	}
 }
 

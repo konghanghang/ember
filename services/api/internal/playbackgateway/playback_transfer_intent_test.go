@@ -272,10 +272,10 @@ func TestGatewayVideoUsesLiveTransferIntent(t *testing.T) {
 				if test.expire {
 					now = now.Add(30 * time.Second)
 				}
-				if request.CanCreateTransfer == nil {
+				if request.AuthorizeTransfer == nil {
 					t.Fatal("live checker missing")
 				}
-				if !test.existing && !request.CanCreateTransfer() {
+				if !test.existing && !request.AuthorizeTransfer().Allowed {
 					return directplay.RedirectCandidate{}, directplay.ErrPlaybackIntentRequired
 				}
 				return validFixtureRedirectCandidate(), nil
@@ -307,7 +307,7 @@ func TestGatewayInternalPlaybackInfoNeverGrantsTransferIntent(t *testing.T) {
 	called := false
 	service := transferIntentDirectPlayFunc(func(_ context.Context, request directplay.MediaPathResolveRequest) (directplay.RedirectCandidate, error) {
 		called = true
-		if request.CanCreateTransfer == nil || request.CanCreateTransfer() {
+		if request.AuthorizeTransfer == nil || request.AuthorizeTransfer().Allowed {
 			t.Fatal("internal GET granted transfer intent")
 		}
 		return directplay.RedirectCandidate{}, directplay.ErrPlaybackIntentRequired
@@ -327,7 +327,7 @@ func TestGatewayQueuedVideoCannotReuseStoppedOrReplacedIntent(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			var gateway *Gateway
 			service := transferIntentDirectPlayFunc(func(_ context.Context, request directplay.MediaPathResolveRequest) (directplay.RedirectCandidate, error) {
-				if request.CanCreateTransfer == nil || !request.CanCreateTransfer() {
+				if request.AuthorizeTransfer == nil || !request.AuthorizeTransfer().Allowed {
 					t.Fatal("initial checker rejected active intent")
 				}
 				switch action {
@@ -345,7 +345,7 @@ func TestGatewayQueuedVideoCannotReuseStoppedOrReplacedIntent(t *testing.T) {
 					}
 					gateway.proofs.mu.Unlock()
 				}
-				if request.CanCreateTransfer() {
+				if request.AuthorizeTransfer().Allowed {
 					t.Fatal("queued request borrowed expired or replaced grant")
 				}
 				return directplay.RedirectCandidate{}, directplay.ErrPlaybackIntentRequired

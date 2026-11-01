@@ -13,6 +13,8 @@ type playbackSessionBinding struct {
 	source         PlaybackProof
 	created, until time.Time
 	sequence       uint64
+	leaseBacked    bool
+	confirmed      bool
 }
 
 // rememberPlaybackSession records an admitted redirect's verified client
@@ -29,6 +31,7 @@ func (cache *playbackProofCache) rememberPlaybackSession(proof PlaybackProof, pr
 	if !ok || current.generation != proof.generation || !playbackProofMatchesPrincipal(current, principal) {
 		return
 	}
+	cache.lifecycle[playbackProofKey{proof.MappingID, proof.ItemID, proof.MediaSourceID, proof.PlaySessionID}] = playbackProofLifecycle{generation: current.generation, admitted: true}
 	origin := proof.intentOriginSession
 	if origin == "" {
 		origin = proof.PlaySessionID
@@ -41,13 +44,14 @@ func (cache *playbackProofCache) rememberPlaybackSession(proof PlaybackProof, pr
 	if binding, found := cache.sessions[key]; found {
 		if matchingIntentMedia(binding.source, proof) {
 			binding.source = proof
+			binding.leaseBacked = true
 			cache.sessions[key] = binding
 		}
 		return // Video traffic cannot extend confirmed playback activity.
 	}
 	makePlaybackCacheRoomLocked(cache.sessions, key, cache.maxEntries, func(binding playbackSessionBinding) (time.Time, uint64) { return binding.created, binding.sequence })
 	cache.generation++
-	cache.sessions[key] = playbackSessionBinding{source: proof, created: now, until: now.Add(p115quota.ReservationTTL), sequence: cache.generation}
+	cache.sessions[key] = playbackSessionBinding{source: proof, created: now, until: now.Add(p115quota.ReservationTTL), sequence: cache.generation, leaseBacked: true}
 }
 
 // sessionOriginLocked links a fresh independently authorized proof to one live
@@ -85,7 +89,9 @@ func (cache *playbackProofCache) updatePlaybackBinding(principal embytoken.Princ
 			continue
 		}
 		if !found {
-			delete(cache.sessions, key)
+			if binding.leaseBacked {
+				delete(cache.sessions, key)
+			}
 			continue
 		}
 		ttl := time.Duration(0)
@@ -98,6 +104,7 @@ func (cache *playbackProofCache) updatePlaybackBinding(principal embytoken.Princ
 			continue
 		}
 		binding.until = now.Add(ttl)
+		binding.confirmed = true
 		cache.sessions[key] = binding
 	}
 }
@@ -135,5 +142,6 @@ func (cache *playbackProofCache) stopPlaybackBinding(principal embytoken.Princip
 		proof.generation = cache.generation
 		proof.intentOriginSession = ""
 		cache.entries[key] = proof
+		cache.lifecycle[key] = playbackProofLifecycle{generation: proof.generation, stopped: true}
 	}
 }

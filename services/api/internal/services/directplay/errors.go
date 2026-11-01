@@ -28,6 +28,7 @@ var (
 	ErrPlaybackResolveTimeout     = errors.New("direct play preparation budget exhausted")
 	ErrPlaybackIntentRequired     = errors.New("direct play new transfer requires playback intent")
 	ErrTransferQuotaExceeded      = errors.New("direct play transfer quota exceeded")
+	ErrCompatibilityQuotaExceeded = errors.New("direct play compatibility transfer quota exceeded")
 	ErrTransferQuotaCommitFailed  = errors.New("direct play transfer quota commit failed")
 )
 

@@ -36,7 +36,7 @@ type playbackRevalidationCall struct {
 	finished bool
 }
 
-// revalidatePlaybackProof refreshes only a previously admitted live session.
+// revalidatePlaybackProof refreshes only an independently verified live media session.
 // The original request remains the fallback, and the new proof has no intent.
 func (gateway *Gateway) revalidatePlaybackProof(request *http.Request, principal embytoken.Principal, token string, info videoRequestInfo) (PlaybackProof, string, bool) {
 	if gateway == nil || gateway.proofs == nil || token == "" || !revalidationRequestEligible(request, info) {
@@ -255,6 +255,7 @@ func (cache *playbackProofCache) finishPlaybackRevalidation(call *playbackRevali
 			fresh.transferIntentUntil = time.Time{}
 			cache.recordLocked([]PlaybackProof{fresh}, now)
 			call.result = cache.entries[snapshot.key]
+			cache.lifecycle[snapshot.key] = playbackProofLifecycle{generation: call.result.generation, admitted: binding.leaseBacked}
 		}
 	}
 	call.reason, call.finished = reason, true

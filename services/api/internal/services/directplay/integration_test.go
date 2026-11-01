@@ -324,7 +324,7 @@ func TestIntegrationSuccessfulSourceProbeRecoversAfterIntentDenial(t *testing.T)
 	}
 
 	request := fixtureMediaPathResolveRequest()
-	request.CanCreateTransfer = nil
+	request.AuthorizeTransfer = nil
 	if _, err := service.ResolveMediaPath(context.Background(), request); !errors.Is(err, ErrPlaybackIntentRequired) {
 		t.Fatalf("ResolveMediaPath() error = %v", err)
 	}
@@ -368,7 +368,7 @@ func TestIntegrationSourceProbeRecoversAfterRangeProtocolFailure(t *testing.T) {
 	}
 
 	request := fixtureMediaPathResolveRequest()
-	request.CanCreateTransfer = func() bool { return true }
+	request.AuthorizeTransfer = func() TransferAuthorization { return TransferAuthorization{Allowed: true} }
 	if _, err := service.ResolveMediaPath(context.Background(), request); !errors.Is(err, ErrProviderProtocol) {
 		t.Fatalf("ResolveMediaPath() error = %v", err)
 	}
@@ -408,7 +408,7 @@ func TestIntegrationSourceRecoveryPreservesConcurrentDisable(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := fixtureMediaPathResolveRequest()
-	request.CanCreateTransfer = nil
+	request.AuthorizeTransfer = nil
 	if _, err := service.ResolveMediaPath(context.Background(), request); !errors.Is(err, ErrPlaybackIntentRequired) {
 		t.Fatalf("resolve error=%v", err)
 	}

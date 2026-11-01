@@ -25,6 +25,16 @@ func (policy transferTriggerPolicyFunc) P115TransferTriggerMode(ctx context.Cont
 	return policy(ctx)
 }
 
+// P115CompatibilityTransferLimits uses the same bounded defaults as production.
+func (policy transferTriggerPolicyFunc) P115CompatibilityTransferLimits(context.Context) (config.CompatibilityTransferLimits, error) {
+	return config.CompatibilityTransferLimits{UserHourly: 1, UserDaily: 3, AccountHourly: 10, AccountDaily: 30}, nil
+}
+
+// P115CompatibilityTransferLimits supplies the runtime's policy contract in fake tests.
+func (settings fakeRuntimeSettings) P115CompatibilityTransferLimits(context.Context) (config.CompatibilityTransferLimits, error) {
+	return config.CompatibilityTransferLimits{UserHourly: 1, UserDaily: 3, AccountHourly: 10, AccountDaily: 30}, nil
+}
+
 // TestTransferTriggerAdmissionModes keeps compatibility separate from explicit
 // intent and preserves strict defaults, HEAD protection and safe diagnostics.
 func TestTransferTriggerAdmissionModes(t *testing.T) {
@@ -192,7 +202,7 @@ func TestGatewayCompatibleTransferPolicyUsesNormalVideoFlow(t *testing.T) {
 				if test.changeMode != "" {
 					mode = test.changeMode
 				}
-				if !test.existing && (request.CanCreateTransfer == nil || !request.CanCreateTransfer()) {
+				if !test.existing && (request.AuthorizeTransfer == nil || !request.AuthorizeTransfer().Allowed) {
 					return directplay.RedirectCandidate{}, directplay.ErrPlaybackIntentRequired
 				}
 				candidate := validFixtureRedirectCandidate()

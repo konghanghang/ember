@@ -324,8 +324,8 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			playbackSessionEvent = observed
 			playbackSessionEvent.requestID = diagnosticRequestID(request.Context())
 			playbackSessionEvent.sessionRef = diagnosticSessionRef(principal, observed.playSessionID)
-			gateway.debugf("[PlaybackGateway] level=debug code=playback_event_received requestId=%s sessionRef=%s event=%s snapshotState=%s itemId=%q",
-				playbackSessionEvent.requestID, playbackSessionEvent.sessionRef, observed.kind, observed.snapshotState, observed.itemID)
+			gateway.debugf("[PlaybackGateway] level=debug code=playback_event_received requestId=%s sessionRef=%s event=%s snapshotState=%s contentType=%s itemId=%q",
+				playbackSessionEvent.requestID, playbackSessionEvent.sessionRef, observed.kind, observed.snapshotState, observed.contentType, observed.itemID)
 		} else if kind == routePlaybackInfo {
 			routeContext.playbackInfoItemID, routeContext.playbackInfoEligible, routeContext.playbackInfoIntent = gateway.preparePlaybackInfoRequest(request, principal)
 		} else if kind == routeItemDetail {

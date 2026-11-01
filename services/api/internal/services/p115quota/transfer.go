@@ -9,32 +9,43 @@ import (
 )
 
 var (
-	ErrTransferIdentityInvalid = errors.New("115 转存配额身份无效")
-	ErrTransferWindowInvalid   = errors.New("115 转存配额时间窗口无效")
-	ErrTransferLimitInvalid    = errors.New("115 转存配额限制无效")
-	ErrTransferQuotaExceeded   = errors.New("115 转存配额已用完")
+	ErrTransferIdentityInvalid    = errors.New("115 转存配额身份无效")
+	ErrTransferWindowInvalid      = errors.New("115 转存配额时间窗口无效")
+	ErrTransferLimitInvalid       = errors.New("115 转存配额限制无效")
+	ErrTransferQuotaExceeded      = errors.New("115 转存配额已用完")
+	ErrCompatibilityQuotaExceeded = errors.New("115 兼容转存子限额已用完")
 )
 
 var transferAttemptPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
+// TransferQuotaScope adds a bounded sublimit to the user's existing total.
+// ID is an internal namespace, never a Provider UID or client session value.
+type TransferQuotaScope struct {
+	ID          string
+	HourlyLimit int
+	DailyLimit  int
+}
+
 // TransferReserveRequest carries both independent plan limits and the current
 // CRON_TIMEZONE day boundary calculated by Gateway.
 type TransferReserveRequest struct {
-	UserID      string
-	AttemptID   string
-	HourlyLimit int
-	DailyLimit  int
-	DayStart    time.Time
-	DayEnd      time.Time
+	UserID           string
+	AttemptID        string
+	HourlyLimit      int
+	DailyLimit       int
+	DayStart         time.Time
+	DayEnd           time.Time
+	AdditionalScopes []TransferQuotaScope
 }
 
 // TransferCommitRequest identifies the same opaque attempt after Provider
 // target verification succeeded.
 type TransferCommitRequest struct {
-	UserID    string
-	AttemptID string
-	DayStart  time.Time
-	DayEnd    time.Time
+	UserID           string
+	AttemptID        string
+	DayStart         time.Time
+	DayEnd           time.Time
+	AdditionalScopes []TransferQuotaScope
 }
 
 // TransferUsageRequest selects the current user's configured business day.
@@ -111,6 +122,7 @@ func DayWindow(now time.Time, location *time.Location) (time.Time, time.Time) {
 	return start, start.AddDate(0, 0, 1)
 }
 
+// ReserveTransfer checks every total and sublimit before publishing any pending reservation.
 func (s *MemoryTransferQuotaStore) ReserveTransfer(ctx context.Context, request TransferReserveRequest, now time.Time) (TransferReserveResult, error) {
 	if err := ctx.Err(); err != nil {
 		return TransferReserveResult{}, err
@@ -129,12 +141,24 @@ func (s *MemoryTransferQuotaStore) ReserveTransfer(ctx context.Context, request 
 	if _, ok := user.succeeded[request.AttemptID]; ok {
 		return TransferReserveResult{Usage: usage}, nil
 	}
-	if usage.HourlyUsed+usage.Pending >= request.HourlyLimit || usage.DailyUsed+usage.Pending >= request.DailyLimit {
-		return TransferReserveResult{Usage: usage}, ErrTransferQuotaExceeded
+	scopes := append([]TransferQuotaScope{{ID: request.UserID, HourlyLimit: request.HourlyLimit, DailyLimit: request.DailyLimit}}, request.AdditionalScopes...)
+	for index, scope := range scopes {
+		entry := s.userLocked(scope.ID, now, true)
+		s.pruneUserLocked(entry, now, request.DayStart)
+		scopeUsage := transferUsageLocked(entry, now, request.DayStart, request.DayEnd)
+		if scopeUsage.HourlyUsed+scopeUsage.Pending >= scope.HourlyLimit || scopeUsage.DailyUsed+scopeUsage.Pending >= scope.DailyLimit {
+			if index > 0 {
+				return TransferReserveResult{Usage: usage}, ErrCompatibilityQuotaExceeded
+			}
+			return TransferReserveResult{Usage: usage}, ErrTransferQuotaExceeded
+		}
 	}
-	user.pending[request.AttemptID] = now.Add(TransferPendingTTL)
-	user.pendingExpires = now.Add(TransferPendingKeyTTL)
-	usage = transferUsageLocked(user, now, request.DayStart, request.DayEnd)
+	for _, scope := range scopes {
+		entry := s.userLocked(scope.ID, now, true)
+		entry.pending[request.AttemptID] = now.Add(TransferPendingTTL)
+		entry.pendingExpires = now.Add(TransferPendingKeyTTL)
+	}
+	usage = transferUsageLocked(s.users[request.UserID], now, request.DayStart, request.DayEnd)
 	return TransferReserveResult{Created: true, Usage: usage}, nil
 }
 
@@ -156,6 +180,7 @@ func (s *MemoryTransferQuotaStore) ReleaseTransfer(ctx context.Context, userID, 
 	return exists && expiresAt.After(now), nil
 }
 
+// CommitTransfer records all scopes under one lock, including idempotent late success.
 func (s *MemoryTransferQuotaStore) CommitTransfer(ctx context.Context, request TransferCommitRequest, now time.Time) (TransferCommitResult, error) {
 	if err := ctx.Err(); err != nil {
 		return TransferCommitResult{}, err
@@ -163,24 +188,29 @@ func (s *MemoryTransferQuotaStore) CommitTransfer(ctx context.Context, request T
 	if err := validateTransferWindow(request.UserID, request.AttemptID, request.DayStart, request.DayEnd, now); err != nil {
 		return TransferCommitResult{}, err
 	}
+	if err := validateTransferScopes(request.UserID, request.AdditionalScopes); err != nil {
+		return TransferCommitResult{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	user := s.userLocked(request.UserID, now, true)
-	pendingExpiresAt, pendingExists := user.pending[request.AttemptID]
-	pendingLive := pendingExists && pendingExpiresAt.After(now)
-	s.pruneUserLocked(user, now, request.DayStart)
-	delete(user.pending, request.AttemptID)
-	_, alreadyCommitted := user.succeeded[request.AttemptID]
-	if !alreadyCommitted {
-		user.succeeded[request.AttemptID] = now
-		user.succeededExpires = now.Add(succeededKeyTTL(now, request.DayEnd))
+	var result TransferCommitResult
+	scopes := append([]TransferQuotaScope{{ID: request.UserID}}, request.AdditionalScopes...)
+	for index, scope := range scopes {
+		user := s.userLocked(scope.ID, now, true)
+		pendingExpiresAt, pendingExists := user.pending[request.AttemptID]
+		pendingLive := pendingExists && pendingExpiresAt.After(now)
+		s.pruneUserLocked(user, now, request.DayStart)
+		delete(user.pending, request.AttemptID)
+		_, alreadyCommitted := user.succeeded[request.AttemptID]
+		if !alreadyCommitted {
+			user.succeeded[request.AttemptID] = now
+			user.succeededExpires = now.Add(succeededKeyTTL(now, request.DayEnd))
+		}
+		if index == 0 {
+			result = TransferCommitResult{Added: !alreadyCommitted, PendingExpiredBeforeCommit: !alreadyCommitted && !pendingLive, Usage: transferUsageLocked(user, now, request.DayStart, request.DayEnd)}
+		}
 	}
-	usage := transferUsageLocked(user, now, request.DayStart, request.DayEnd)
-	return TransferCommitResult{
-		Added:                      !alreadyCommitted,
-		PendingExpiredBeforeCommit: !alreadyCommitted && !pendingLive,
-		Usage:                      usage,
-	}, nil
+	return result, nil
 }
 
 func (s *MemoryTransferQuotaStore) TransferUsage(ctx context.Context, request TransferUsageRequest, now time.Time) (TransferUsage, error) {
@@ -206,6 +236,25 @@ func validateTransferReserveRequest(request TransferReserveRequest, now time.Tim
 	}
 	if request.HourlyLimit < 1 || request.HourlyLimit > 100 || request.DailyLimit < 1 || request.DailyLimit > 1000 {
 		return ErrTransferLimitInvalid
+	}
+	return validateTransferScopes(request.UserID, request.AdditionalScopes)
+}
+
+// validateTransferScopes bounds script work and rejects colliding counters;
+// callers carry the same scopes through reserve, refund and commit.
+func validateTransferScopes(userID string, scopes []TransferQuotaScope) error {
+	if len(scopes) > 2 {
+		return ErrTransferLimitInvalid
+	}
+	seen := map[string]bool{userID: true}
+	for _, scope := range scopes {
+		if !internalIDPattern.MatchString(scope.ID) || seen[scope.ID] {
+			return ErrTransferIdentityInvalid
+		}
+		if scope.HourlyLimit < 1 || scope.HourlyLimit > 100 || scope.DailyLimit < 1 || scope.DailyLimit > 1000 {
+			return ErrTransferLimitInvalid
+		}
+		seen[scope.ID] = true
 	}
 	return nil
 }

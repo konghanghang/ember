@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	configpkg "github.com/konghang/ember/backend/internal/config"
 	embypkg "github.com/konghang/ember/backend/internal/integrations/emby"
 	p115integration "github.com/konghang/ember/backend/internal/integrations/p115"
 	logpkg "github.com/konghang/ember/backend/internal/logging"
@@ -56,6 +57,7 @@ type RuntimeSettings interface {
 	PlaybackGatewayWebEnabled(context.Context) (bool, error)
 	LogLevel(context.Context) (string, error)
 	P115TransferTriggerMode(context.Context) (string, error)
+	P115CompatibilityTransferLimits(context.Context) (configpkg.CompatibilityTransferLimits, error)
 }
 
 // ProductionDependencies are process-owned objects that remain injectable for

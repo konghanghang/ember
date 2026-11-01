@@ -6,15 +6,39 @@ import (
 	"time"
 
 	"github.com/konghang/ember/backend/internal/config"
+	"github.com/konghang/ember/backend/internal/services/directplay"
 	"github.com/konghang/ember/backend/internal/services/embytoken"
 )
 
 const transferPolicyReadTimeout = 500 * time.Millisecond
 
-// TransferTriggerPolicy supplies only the administrator's database-backed
-// transfer mode. Missing or unavailable policy never grants extra permission.
+// TransferTriggerPolicy supplies the administrator's database-backed mode and
+// weak-GET sublimits. Unavailable policy never grants unbounded permission.
 type TransferTriggerPolicy interface {
 	P115TransferTriggerMode(context.Context) (string, error)
+	P115CompatibilityTransferLimits(context.Context) (config.CompatibilityTransferLimits, error)
+}
+
+// authorizeVideoTransfer keeps the decision source and its sublimits in one
+// locked-admission snapshot. Missing limits cannot silently uncap weak GETs.
+func (gateway *Gateway) authorizeVideoTransfer(ctx context.Context, method string, proof PlaybackProof, principal embytoken.Principal) (directplay.TransferAuthorization, string) {
+	if ctx == nil {
+		return directplay.TransferAuthorization{}, "policy_denied"
+	}
+	readContext, cancel := context.WithTimeout(ctx, transferPolicyReadTimeout)
+	defer cancel()
+	allowed, trigger := gateway.canCreateVideoTransfer(readContext, method, proof, principal)
+	if !allowed || trigger != "compatible_request" {
+		return directplay.TransferAuthorization{Allowed: allowed}, trigger
+	}
+	limits, err := gateway.transferTriggerPolicy.P115CompatibilityTransferLimits(readContext)
+	if err != nil || readContext.Err() != nil || !gateway.proofs.mediaProofIsCurrent(proof, principal) {
+		gateway.debugf("[PlaybackGateway] level=debug code=transfer_policy_unavailable requestId=%s reasonCode=config_unavailable errorType=%T", diagnosticRequestID(ctx), err)
+		return directplay.TransferAuthorization{}, "policy_denied"
+	}
+	return directplay.TransferAuthorization{Allowed: true, CompatibilityLimits: &directplay.CompatibilityTransferLimits{
+		UserHourly: limits.UserHourly, UserDaily: limits.UserDaily, AccountHourly: limits.AccountHourly, AccountDaily: limits.AccountDaily,
+	}}, trigger
 }
 
 // canCreateVideoTransfer runs at the existing locked transfer admission point.
@@ -43,6 +67,9 @@ func (gateway *Gateway) canCreateVideoTransfer(ctx context.Context, method strin
 	}
 	if ctx.Err() != nil || !gateway.proofs.mediaProofIsCurrent(proof, principal) {
 		return false, denied
+	}
+	if gateway.proofs.hasConfirmedPlayback(proof, principal) {
+		return true, "session_playback"
 	}
 	return true, "compatible_request"
 }

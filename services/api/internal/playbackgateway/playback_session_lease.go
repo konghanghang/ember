@@ -28,6 +28,11 @@ func (gateway *Gateway) updatePlaybackSessionLease(
 		gateway.proofs.stopPlaybackBinding(principal, event.itemID, event.mediaSourceID, event.playSessionID)
 		gateway.debugf("[PlaybackGateway] level=debug code=playback_transfer_intent_revoked message=\"播放停止，撤销新增转存许可\" requestId=%s sessionRef=%s reasonCode=playback_stopped count=%d", requestID, sessionRef, revoked)
 	}
+	if event.snapshotState == "recorded" && event.kind != playbackSessionEventStop {
+		if gateway.proofs.observeFallbackPlayback(principal, event) {
+			gateway.debugf("[PlaybackGateway] level=debug code=playback_activity_observed requestId=%s sessionRef=%s event=%s itemId=%q", requestID, sessionRef, event.kind, event.itemID)
+		}
+	}
 	if gateway.playbackSessionService == nil || event.snapshotState != "recorded" {
 		reason := "snapshot_unavailable"
 		if gateway.playbackSessionService == nil {

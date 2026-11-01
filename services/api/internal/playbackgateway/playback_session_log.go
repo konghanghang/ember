@@ -49,6 +49,7 @@ type playbackSessionEventSnapshot struct {
 	isPaused           bool
 	isPausedPresent    bool
 	snapshotState      string
+	contentType        string
 	correlationKey     uint64
 	correlationPresent bool
 
@@ -101,11 +102,7 @@ func (gateway *Gateway) inspectPlaybackSessionRequest(request *http.Request) pla
 	if request == nil || request.Body == nil {
 		return event
 	}
-	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" {
-		event.snapshotState = "content_type_invalid"
-		return event
-	}
+	event.contentType = playbackSessionContentType(request.Header.Get("Content-Type"))
 	if encoding := strings.TrimSpace(request.Header.Get("Content-Encoding")); encoding != "" && !strings.EqualFold(encoding, "identity") {
 		event.snapshotState = "content_encoding_unsupported"
 		return event
@@ -123,8 +120,9 @@ func (gateway *Gateway) inspectPlaybackSessionRequest(request *http.Request) pla
 		return event
 	}
 
+	_, unique := uniquePlaybackJSONFields(prefix, "ItemId", "MediaSourceId", "PlaySessionId", "PositionTicks", "IsPaused")
 	var payload playbackSessionEventPayload
-	if err := json.Unmarshal(prefix, &payload); err != nil ||
+	if err := json.Unmarshal(prefix, &payload); !unique || err != nil ||
 		!validProofValue(payload.ItemID, maxProofItemIDBytes, false) ||
 		!validProofValue(payload.MediaSourceID, maxProofMediaSourceIDBytes, true) ||
 		!validProofValue(payload.PlaySessionID, maxProofPlaySessionIDBytes, false) ||
@@ -149,6 +147,28 @@ func (gateway *Gateway) inspectPlaybackSessionRequest(request *http.Request) pla
 		event.intentRevocationEligible = validPlaybackIntentRevocation(prefix)
 	}
 	return event
+}
+
+// playbackSessionContentType records only a fixed diagnostic category. A
+// mislabeled Header cannot substitute for valid JSON and matched identity.
+func playbackSessionContentType(raw string) string {
+	if raw == "" {
+		return "missing"
+	}
+	mediaType, _, err := mime.ParseMediaType(raw)
+	if err != nil {
+		return "invalid"
+	}
+	switch mediaType {
+	case "application/json":
+		return "json"
+	case "application/x-www-form-urlencoded":
+		return "form"
+	case "application/xml", "text/xml":
+		return "xml"
+	default:
+		return "other"
+	}
 }
 
 // logPlaybackSessionEvent emits readable session lifecycle diagnostics without

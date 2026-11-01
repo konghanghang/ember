@@ -12,32 +12,32 @@ local now = tonumber(ARGV[2])
 local hourStart = tonumber(ARGV[4])
 local dayStart = tonumber(ARGV[5])
 local dayEnd = tonumber(ARGV[6])
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
-local oldest = hourStart
-if dayStart < oldest then oldest = dayStart end
-redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', '(' .. oldest)
-
-local function usage()
-  local pending = tonumber(redis.call('ZCOUNT', KEYS[1], '(' .. now, '+inf'))
-  local hourly = tonumber(redis.call('ZCOUNT', KEYS[2], hourStart, now))
-  local daily = tonumber(redis.call('ZCOUNT', KEYS[2], dayStart, '(' .. dayEnd))
-  return pending, hourly, daily
+local oldest = math.min(hourStart, dayStart)
+local function usage(index)
+  return tonumber(redis.call('ZCOUNT', KEYS[index], '(' .. now, '+inf')),
+    tonumber(redis.call('ZCOUNT', KEYS[index+1], hourStart, now)),
+    tonumber(redis.call('ZCOUNT', KEYS[index+1], dayStart, '(' .. dayEnd))
 end
-
-local pendingScore = redis.call('ZSCORE', KEYS[1], ARGV[1])
-local succeededScore = redis.call('ZSCORE', KEYS[2], ARGV[1])
-if (pendingScore and tonumber(pendingScore) > now) or succeededScore then
-  local pending, hourly, daily = usage()
+for index=1,#KEYS,2 do
+  redis.call('ZREMRANGEBYSCORE', KEYS[index], '-inf', now)
+  redis.call('ZREMRANGEBYSCORE', KEYS[index+1], '-inf', '(' .. oldest)
+end
+local pending, hourly, daily = usage(1)
+if redis.call('ZSCORE', KEYS[1], ARGV[1]) or redis.call('ZSCORE', KEYS[2], ARGV[1]) then
   return {0, pending, hourly, daily}
 end
-
-local pending, hourly, daily = usage()
-if hourly + pending >= tonumber(ARGV[7]) or daily + pending >= tonumber(ARGV[8]) then
-  return {-1, pending, hourly, daily}
+for index=1,#KEYS,2 do
+  local p,h,d = usage(index)
+  local limitIndex = 8 + index - 1
+  if h+p >= tonumber(ARGV[limitIndex]) or d+p >= tonumber(ARGV[limitIndex+1]) then
+    return {-index, pending, hourly, daily}
+  end
 end
-redis.call('ZADD', KEYS[1], tonumber(ARGV[3]), ARGV[1])
-redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[9]))
-pending, hourly, daily = usage()
+for index=1,#KEYS,2 do
+  redis.call('ZADD', KEYS[index], tonumber(ARGV[3]), ARGV[1])
+  redis.call('PEXPIRE', KEYS[index], tonumber(ARGV[7]))
+end
+pending, hourly, daily = usage(1)
 return {1, pending, hourly, daily}
 `)
 
@@ -52,15 +52,18 @@ local now = tonumber(ARGV[2])
 local hourStart = tonumber(ARGV[3])
 local dayStart = tonumber(ARGV[4])
 local dayEnd = tonumber(ARGV[5])
+local oldest = math.min(hourStart, dayStart)
 local pendingScore = redis.call('ZSCORE', KEYS[1], ARGV[1])
 local pendingLive = pendingScore and tonumber(pendingScore) > now
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
-local oldest = hourStart
-if dayStart < oldest then oldest = dayStart end
-redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', '(' .. oldest)
-redis.call('ZREM', KEYS[1], ARGV[1])
-local added = redis.call('ZADD', KEYS[2], 'NX', now, ARGV[1])
-if added == 1 then redis.call('PEXPIRE', KEYS[2], tonumber(ARGV[6])) end
+local added = 0
+for index=1,#KEYS,2 do
+  redis.call('ZREMRANGEBYSCORE', KEYS[index], '-inf', now)
+  redis.call('ZREMRANGEBYSCORE', KEYS[index+1], '-inf', '(' .. oldest)
+  redis.call('ZREM', KEYS[index], ARGV[1])
+  local changed = redis.call('ZADD', KEYS[index+1], 'NX', now, ARGV[1])
+  if changed == 1 then redis.call('PEXPIRE', KEYS[index+1], tonumber(ARGV[6])) end
+  if index == 1 then added = changed end
+end
 local pending = tonumber(redis.call('ZCOUNT', KEYS[1], '(' .. now, '+inf'))
 local hourly = tonumber(redis.call('ZCOUNT', KEYS[2], hourStart, now))
 local daily = tonumber(redis.call('ZCOUNT', KEYS[2], dayStart, '(' .. dayEnd))
@@ -90,12 +93,12 @@ func (s *RedisLeaseStore) ReserveTransfer(ctx context.Context, request TransferR
 	if err := validateTransferReserveRequest(request, now); err != nil {
 		return TransferReserveResult{}, err
 	}
-	values, err := reserveTransferScript.Run(ctx, s.client,
-		[]string{transferPendingKey(request.UserID), transferSucceededKey(request.UserID)},
-		request.AttemptID, now.UnixMilli(), now.Add(TransferPendingTTL).UnixMilli(), now.Add(-time.Hour).UnixMilli(),
-		request.DayStart.UnixMilli(), request.DayEnd.UnixMilli(), request.HourlyLimit, request.DailyLimit,
-		TransferPendingKeyTTL.Milliseconds(),
-	).Slice()
+	keys := transferScopeKeys(request.UserID, request.AdditionalScopes)
+	args := []interface{}{request.AttemptID, now.UnixMilli(), now.Add(TransferPendingTTL).UnixMilli(), now.Add(-time.Hour).UnixMilli(), request.DayStart.UnixMilli(), request.DayEnd.UnixMilli(), TransferPendingKeyTTL.Milliseconds(), request.HourlyLimit, request.DailyLimit}
+	for _, scope := range request.AdditionalScopes {
+		args = append(args, scope.HourlyLimit, scope.DailyLimit)
+	}
+	values, err := reserveTransferScript.Run(ctx, s.client, keys, args...).Slice()
 	if err != nil {
 		return TransferReserveResult{}, mapRedisLeaseError(ctx, err)
 	}
@@ -103,10 +106,13 @@ func (s *RedisLeaseStore) ReserveTransfer(ctx context.Context, request TransferR
 	if err != nil {
 		return TransferReserveResult{}, err
 	}
-	if code == -1 {
+	if code < 0 {
 		usage, usageErr := redisTransferUsage(values, 1)
 		if usageErr != nil {
 			return TransferReserveResult{}, usageErr
+		}
+		if code < -1 {
+			return TransferReserveResult{Usage: usage}, ErrCompatibilityQuotaExceeded
 		}
 		return TransferReserveResult{Usage: usage}, ErrTransferQuotaExceeded
 	}
@@ -136,8 +142,11 @@ func (s *RedisLeaseStore) CommitTransfer(ctx context.Context, request TransferCo
 	if err := validateTransferWindow(request.UserID, request.AttemptID, request.DayStart, request.DayEnd, now); err != nil {
 		return TransferCommitResult{}, err
 	}
+	if err := validateTransferScopes(request.UserID, request.AdditionalScopes); err != nil {
+		return TransferCommitResult{}, err
+	}
 	values, err := commitTransferScript.Run(ctx, s.client,
-		[]string{transferPendingKey(request.UserID), transferSucceededKey(request.UserID)},
+		transferScopeKeys(request.UserID, request.AdditionalScopes),
 		request.AttemptID, now.UnixMilli(), now.Add(-time.Hour).UnixMilli(), request.DayStart.UnixMilli(), request.DayEnd.UnixMilli(),
 		succeededKeyTTL(now, request.DayEnd).Milliseconds(),
 	).Slice()
@@ -196,4 +205,14 @@ func redisTransferUsage(values []interface{}, offset int) (TransferUsage, error)
 		return TransferUsage{}, err
 	}
 	return TransferUsage{Pending: pending, HourlyUsed: hourly, DailyUsed: daily}, nil
+}
+
+// transferScopeKeys keeps the primary user's diagnostic counters first and adds
+// bounded internal sublimits to the same atomic Lua operation.
+func transferScopeKeys(userID string, scopes []TransferQuotaScope) []string {
+	keys := []string{transferPendingKey(userID), transferSucceededKey(userID)}
+	for _, scope := range scopes {
+		keys = append(keys, transferPendingKey(scope.ID), transferSucceededKey(scope.ID))
+	}
+	return keys
 }

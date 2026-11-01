@@ -63,7 +63,7 @@ func TestGatewayStreamFirstContractAndAdmission(t *testing.T) {
 					resolved.UserID != "user-1" || resolved.MappingID != "mapping-1" || resolved.DeviceID != "device-1" || resolved.PlaySessionID != wantSession {
 					t.Errorf("wrong source, method or principal: %+v", resolved)
 				}
-				allowed := resolved.CanCreateTransfer != nil && resolved.CanCreateTransfer()
+				allowed := resolved.AuthorizeTransfer != nil && resolved.AuthorizeTransfer().Allowed
 				if allowed != test.allowed {
 					t.Errorf("transfer callback=%t, want %t", allowed, test.allowed)
 				}

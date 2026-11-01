@@ -34,18 +34,18 @@ func TestTransferReleaseDiagnostics(t *testing.T) {
 	t.Cleanup(func() { log.SetOutput(original) })
 	store := &releaseFailureStore{MemoryLeaseStore: p115quota.NewMemoryLeaseStore()}
 	service := &Service{transferQuotas: store, now: time.Now}
-	service.releaseTransferReservation("user-1", "private-attempt")
+	service.releaseTransferReservation("user-1", "user-1", "private-attempt")
 	if output.Len() != 0 {
 		t.Fatal("missing reservation should not warn")
 	}
 	store.err = errors.New("private-redis-address")
-	service.releaseTransferReservation("user-1", "private-attempt")
+	service.releaseTransferReservation("user-1", "private-scope-key", "private-attempt")
 	for _, field := range []string{"code=transfer_quota_release_failed", `userId="user-1"`, "errorType="} {
 		if !strings.Contains(output.String(), field) {
 			t.Fatalf("missing %s in refund diagnostic: %s", field, output.String())
 		}
 	}
-	for _, secret := range []string{"private-attempt", "private-redis-address"} {
+	for _, secret := range []string{"private-attempt", "private-redis-address", "private-scope-key"} {
 		if strings.Contains(output.String(), secret) {
 			t.Fatal("refund diagnostic leaked private data")
 		}

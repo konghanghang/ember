@@ -155,7 +155,7 @@ func TestGatewayInfuseExplicitIntentSurvivesUnsupportedResponse(t *testing.T) {
 		if request.PlaySessionID != "session-1" {
 			t.Fatalf("lease session=%q, want original client session", request.PlaySessionID)
 		}
-		if request.CanCreateTransfer == nil || !request.CanCreateTransfer() {
+		if request.AuthorizeTransfer == nil || !request.AuthorizeTransfer().Allowed {
 			t.Fatal("explicit intent did not reach transfer admission")
 		}
 		return validFixtureRedirectCandidate(), nil

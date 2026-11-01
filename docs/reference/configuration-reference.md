@@ -64,6 +64,8 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 | `NEXT_PUBLIC_EMBY_URL` | 否 | 否 | 控制台展示与用户跳转使用的前端 Emby 地址；沿用历史键名，作为数据库配置项保留，为空时回退 `EMBY_URL` |
 | `PLAYBACK_GATEWAY_WEB_ENABLED` | 否 | 否 | 是否允许通过 Gateway 打开 Emby 网页端；默认开启，后台保存后最多 5 秒生效，不影响客户端 API、视频或 WebSocket |
 | `P115_TRANSFER_TRIGGER_MODE` | 否 | 否 | 115 首次转存策略；`strict`（默认）要求明确起播许可，`compatible` 额外允许合格原文件视频 GET 首次转存，包括可能的预读；HEAD 永不新增转存 |
+| `P115_COMPAT_USER_HOURLY_LIMIT` / `P115_COMPAT_USER_DAILY_LIMIT` | 否 | 否 | 缺少明确起播或匹配播放事件的兼容转存每用户子限额，默认每滚动小时 `1` 次、每业务自然日 `3` 次，范围分别 `1..100` / `1..1000` |
+| `P115_COMPAT_ACCOUNT_HOURLY_LIMIT` / `P115_COMPAT_ACCOUNT_DAILY_LIMIT` | 否 | 否 | 同类兼容转存每 playback Provider 账号合计子限额，默认每滚动小时 `10` 次、每业务自然日 `30` 次，范围分别 `1..100` / `1..1000` |
 | `TMDB_API_KEY` | 是 | 否 | TMDB 接口密钥 |
 | `MOVIEPILOT_URL` | 否 | 否 | MoviePilot 地址 |
 | `MOVIEPILOT_API_KEY` | 是 | 否 | MoviePilot API Key（X-API-KEY） |
@@ -76,6 +78,7 @@ Go 统一入口仍会在日志初始化前加载 `EMBER_DOTENV` 指定文件；�
 - 现有合同允许的无 Token `/emby/Items/{Id}/Images/{Type}[/{Index}]` GET/HEAD 图片独立透传 Emby，不读取网页开关，也不受其配置故障影响；携 Token 图片继续执行普通身份门控。root 无 Token 图片未扩展。
 - `P115_TRANSFER_TRIGGER_MODE` 只存在于设置中心和 `settings` 表，不读取环境变量；缺失记录为 `strict`，空白或非法持久值不是默认值。设置中心允许大小写和首尾空白规范化，保存非法值被拒绝。Gateway 在锁内确认目标不存在、开始新转存的准入点读取五秒缓存，单次读取最多 `500ms`；正常读取时修改最多经过一个五秒窗口收敛。过期读取失败、超时或非法值不沿用兼容授权，已有有效明确起播许可继续按严格规则处理，已有文件复用不依赖该读取。配置错误不回写 115 账号健康。
 - 兼容模式作用于所有客户端，不按 UA 列白名单；开启后包括 Infuse 在内的预读可能消耗转存配额。关闭模式只约束尚未开始的准入，不能回滚已发送到 115 的写入。身份、媒体证明、账号、租约、二次查重、配额及失败释放边界保持。
+- 四个 `P115_COMPAT_*_LIMIT` 仅由设置中心管理，不读取环境变量；使用相同五秒缓存，模式与限额读取合计最多 `500ms`，失败或非法值不无限放行。适用时，Redis 同一脚本检查并预占用户总配额、用户兼容子限额与账号兼容子限额；成功同一脚本幂等提交，失败尽力释放各预占，保留原 TTL 收口。明确起播与精确匹配的近期成功播放事件仍占总配额，但不占 GET-only 子限额；已有目标不新增记账。账号子限额按用途隔离的 Provider UID HMAC 共享，包含个人和管理员 playback，解绑重绑不重置同一账号窗口。日边界统一 `CRON_TIMEZONE`，不要求小时值与每日值存在大小关系。
 - `email_verification` 会经过 Normalize（大小写与首尾空格不敏感），不要再假设只有严格字面量 `"true"` 才算开启。
 
 ### 2.3 邮件服务

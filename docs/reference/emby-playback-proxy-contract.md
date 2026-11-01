@@ -531,6 +531,14 @@ MediaSource 观察日志的 proof 结果固定为 `proofAccepted=true + proofRej
 
 ## 7. 播放会话合同
 
+### Gateway 有界 JSON 旁路兼容（2026-11-01）
+
+以下为 Ember 内部适配策略，不声称 Emby 接受任意 Content-Type，也不据此宣称某个播放器已实测通过。会话请求沿用本节固定 method/path/DTO：认证成功后，Gateway 只对至多 64 KiB、未编码的完整 JSON 对象尝试旁路解析；Content-Type 缺失或误标不单独阻止已知 JSON DTO 的观察。原 Content-Type、body 字节及上游响应保持不变，只有 Emby 成功接受后才处理本地事件。实际为表单、XML、二进制、畸形 JSON、重复关键逻辑字段或身份不完整时，不推测转换，继续透明转发且不授予活动证据。日志只记录固定 Content-Type 分类，不输出 Header 原值或事件正文。
+
+匹配成功的事件可以为尚未进入 115 的、已由 PlaybackInfo 独立授权的同一媒体建立有界活动关联；必须匹配当前 Server/用户/映射/设备/客户端、条目、媒体源和客户端会话。缺少媒体源仅允许唯一匹配。普通活动 2 分钟、暂停 15 分钟，事件可续活动期，视频请求不可续期。该关联允许后续固定流按原用户 Token 重新核验过期媒体证明，不创建 Redis 租约、不将事件伪装为明确起播许可。曾准入 115 的会话仍只能由命中既有 Redis 租约的成功事件续活，丢失/过期租约和成功 Stopped 不由旧事件恢复。
+
+严格模式继续只接受明确起播许可。兼容模式中，近期匹配活动单独记录 `transferTrigger=session_playback`，仍受套餐总配额约束；没有该证据的 GET 记录 `compatible_request`，还须通过独立兼容子限额。只有现有合法媒体证明与具体会话可参与该判定，不能按 UA 或全用户活跃状态放行。新增假上游合同测试与真实客户端验收分别记录。
+
 ### 7.1 开始播放
 
 ```http
@@ -575,7 +583,7 @@ Content-Type: application/json
 - 当前 Gateway 只在本地身份门控成功后最多旁路读取 `64 KiB` JSON 请求副本并恢复原始 body，提取有界 `ItemId/MediaSourceId/PlaySessionId/PositionTicks/IsPaused` 用于日志、成功事件的租约更新及停止许可撤销；未通过身份门控时不读取 body，非法、超大、非 JSON 或不支持编码的已认证 body 仍透明转发并只记录固定 `snapshotState`。
 - Redis sessionFingerprint 以 `PlaySessionId + Ember 用户 + 设备` 为主要维度。合格 GET 在 302 前只建立短期 `reservation` 并进入账号/用户占用索引；只有成功转发给 Emby 的 Playing 或 Progress 才能把已有 reservation 晋级为 `active`，API 真实活跃数不包含 reservation。
 - 对于已通过完整身份与媒体匹配、继承客户端显式起播意图的内部 proof，Gateway 在建立租约时使用 proof 记录的原客户端 PlaySessionId，内部补查 PlaySessionId 仍只用于媒体证明查找。事件请求及发往 Emby 的 body 完全不改写；后续 Playing/Progress/暂停/Stopped 自然命中同一 Redis 租约。该租约身份不会在 30 秒意图或 5 分钟 proof 到期时切换，续期仍仅由真实成功事件驱动。Debug `playback_lease_session_bound` 用 sessionRef/proofSessionRef 关联两者，不输出原始会话 ID。未建立可信关联时维持原会话策略，不按 item/device 猜测匹配；缺失/过期租约仍不由事件重建。
-- proof 缓存同一锁内保存有界播放关联（全局最多 4096 条，每个 mapping 最多 64 条，满载优先淘汰同 mapping 最旧关联），所有成功 302 的视频证明（包括无严格起播许可的目标复用）建立 30 秒候选，成功命中租约的真实事件分别按 active 2 分钟、paused 15 分钟更新；视频请求不续活动期。新内部 proof 在 server/user/mapping/device/client/item/source/path/container/已知 size 完整匹配且关联仍活跃时，只继承原客户端会话；不续发新增转存许可。停止、租约缺失、过期或新客户端观察清理关联，旧发布令牌和旧 proof 代次不能重新建立它。事件本身不能创建关联或租约，不把关联缓存当作 Redis 准入真相。
+- proof 缓存同一锁内保存有界播放关联（全局最多 4096 条，每个 mapping 最多 64 条，满载优先淘汰同 mapping 最旧关联），所有成功 302 的视频证明（包括无严格起播许可的目标复用）建立 30 秒候选，成功命中租约的真实事件分别按 active 2 分钟、paused 15 分钟更新；视频请求不续活动期。新内部 proof 在 server/user/mapping/device/client/item/source/path/container/已知 size 完整匹配且关联仍活跃时，只继承原客户端会话；不续发新增转存许可。停止、租约缺失、过期或新客户端观察清理关联，旧发布令牌和旧 proof 代次不能重新建立它。上述已准入 115 的关联不能由事件从零重建，也不把关联缓存当作 Redis 准入真相；尚未准入 115 的回退媒体活动按本节新增内部合同单独处理，仍不创建租约。
 - `Progress + IsPaused=true` 表示暂停，不是 Stopped；`paused` 继续占用账号名额并使用更长 TTL。只有 Stopped 成功转发给 Emby 后才立即释放占用和活跃索引；对应新增转存许可撤销独立于租约是否存在，普通 proof 与媒体缓存保留。
 - `HEAD` 不能创建 reservation 或 active，只有命中同 session 既有租约时才允许复用 115 候选，否则继续 Emby fallback。符合条件的首次/预加载/带 Range GET 在网关侧无法可靠区分，因此最多创建同 session 的一个短 reservation；重复 GET/Range 只能复用，任何视频请求都不能绕过成功的会话事件直接形成 active。
 
