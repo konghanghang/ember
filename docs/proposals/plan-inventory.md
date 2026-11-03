@@ -1,6 +1,6 @@
 # `docs/plan` 盘点清单
 
-> 更新时间：2026-10-25（四份计划完成归档与待办交接，现行实施稿 10 份）
+> 更新时间：2026-11-03（新增 Gateway 只读路径优化，现行实施稿 11 份）
 
 本清单只回答三件事：
 
@@ -93,7 +93,7 @@
 
 ## B. 当前 `docs/plan/` 状态复核
 
-以下为分批历史记录，数量及未验收边界只描述当时版本；本轮 10 份现行实施稿以本节末表格为准。
+以下为分批历史记录，数量及未验收边界只描述当时版本；当前 11 份现行实施稿以本节末表格为准。
 
 2026-09-05 继续核对代码、测试和稳定文档；115 用户自有账号、套餐来源、Redis 播放租约与转存配额已完成阶段 0–3 代码、fake/race/全量验证和稳定文档同步。新增 PostgreSQL migration 已在专用 `EMBER_INTEGRATION_DATABASE_URL` 环境实际执行并通过；本机也已使用占位配置完成包含 `gateway`、`bot` profile 的 `docker compose config --quiet`，但这不替代目标部署环境的实际 `.env` 验证。未获真实外部验证授权，因此个人 Cookie/Redis/客户端链路仍未验收。Gateway 本地媒体直出已按产品边界撤销并归档，不再列为现行计划。
 
@@ -117,6 +117,7 @@
 | [分组观看保号](../plan/billing-redemption/watch-activity-renewal.md) | 实现完成，待分项验收 | 专用 PostgreSQL 与管理员页面已有记录；10/18 保留起点修复已落地，10/23 历史镜像包含该修复；用户端页面、真实考核与权限同步未验收 | 保留验收计划，不重复要求已完成的管理员页面验收 |
 | [Emby–115 DirectPlay 总计划](../plan/architecture/emby-115-direct-play-gateway.md) | 播放数据面主体完成，运维待实施 | 任务查询/重试、主动健康告警、文件容量清理和部分 CDN 取证未完成；目录与 Redis 已落地 | 按单 Gateway 保留当前剩余项，不把多实例列为归档门槛 |
 | [运行期配置缓存演进](../plan/architecture/runtime-settings-cache-evolution.md) | 观察期 | 未取得替换启动条件实证，未提升最低 Go 语言版本；5s 专用策略已有修补不等于通用刷新演进完成 | 无实证不替换，继续观察 |
+| [Gateway 只读路径优化](../plan/architecture/gateway-read-path-optimization.md) | 本地实现与验证完成，待真实验收 | 全量非数据库 Go、五包 race、vet/build、41 项采集测试与跨语言合同通过，三条图片审查问题已修复并复核 | 承接部署与真实收益，不能把 fake 请求计数变化当成客户端验收 |
 | [Telegram 通知静音规则](../plan/bot-telegram/notification-mute-rules.md) | 待开发 | 已有订阅结果通知，但没有事件规则、用户偏好和统一静音入口 | 继续保留实施计划 |
 | [群签到与双途径保号](../plan/bot-telegram/group-checkin-retention.md) | 规则已确认，待实施 | 已同步10/18起点边界；签到、首次日期持久化、迁移及双条件考核仍未实现 | 保留实施计划，不能把前置修复算成签到完成 |
 | [Gateway 客户端兼容与转存策略](../plan/architecture/gateway-client-compatibility.md) | 实施、CI 与 hz 部署完成，待真实验收 | e78d8f80 的完整 Test 及三镜像构建通过，hz 四容器目标 revision/健康和 4 分钟稳定性已核对；默认 strict，客户端和性能仍未实测 | 承接旧专项取证，按单 Gateway 完成授权范围内验收 |
@@ -233,7 +234,7 @@
 
 ## 当前结论
 
-截至 2026-10-25，`docs/plan/` 共 10 份现行实施稿：3 份推进实现或验收、6 份待开发、1 份观察期；逐项状态见 B 节，四份本轮归档见 C 节。实施归档不删除未完成验收，所有待办已有现行承接位置。
+截至 2026-11-03，`docs/plan/` 共 11 份现行实施稿：4 份推进实现或验收、6 份待开发、1 份观察期；逐项状态见 B 节，历史归档见 C 节。实施归档不删除未完成验收，所有待办已有现行承接位置。
 
 10 月 23 日历史部署记录确认 hz 四个应用容器的镜像 revision 为 `b1f524f5a81b5507d505b272b96355c82ce7da38`；本轮本地 Git 祖先核对确认其包含套餐迁组、观看保号起点修复与 SenPlayer MKV 适配。这是历史部署事实，不是本轮线上版本或业务验收；10 月 25 日首次 [CI 40187234649](https://github.com/konghanghang/ember/actions/runs/40187234649) 对应 95269111，除 Python 3.9 在安装环境阶段失败外其余测试 job 成功；后续 e78d8f80 的 [CI 40188457875](https://github.com/konghanghang/ember/actions/runs/40188457875) 全部通过，三镜像构建成功并已部署 hz，四容器健康且稳定 4 分钟，Bot polling 租约持续有效。真实客户端与性能仍无新验收证据，明细见[主计划第 10 节](../plan/architecture/gateway-client-compatibility.md#10-ci-复验与-hz-部署2026-10-25)。
 

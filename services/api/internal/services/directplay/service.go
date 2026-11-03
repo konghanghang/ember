@@ -188,6 +188,7 @@ type Service struct {
 	downloadCache          *downloadURLCache
 	mediaCache             *mediaResolutionCache
 	preIDCache             *preIDCache
+	sourceFailures         *sourceFailureBackoff
 	leaseHeartbeatInterval time.Duration
 	resolveTimeout         time.Duration
 	accounts               accountRuntime
@@ -222,7 +223,7 @@ func NewService(database *gorm.DB, accounts *p115account.Service, provider Trans
 // task persistence, and locks without weakening the production constructor.
 func newServiceWithDependencies(accounts accountRuntime, provider TransferProvider, store taskStore, locker taskLocker) *Service {
 	return &Service{accounts: accounts, provider: provider, store: store, locker: locker, now: time.Now,
-		preIDCache: newPreIDCache(preIDCacheCapacity)}
+		preIDCache: newPreIDCache(preIDCacheCapacity), sourceFailures: newSourceFailureBackoff(sourceFailureBackoffCapacity)}
 }
 
 // NewRoutedService adds personal/system account routing and Redis admission to
@@ -269,9 +270,10 @@ func newRoutedServiceWithDependencies(
 		leases: leases, transferQuotas: transferQuotas, keyDeriver: keyDeriver, serverID: serverID,
 		businessTimezone: businessTimezone, transferCommitBudget: transferCommitTimeout,
 		transferRetryInterval: transferCommitRetryInterval, now: time.Now,
-		downloadCache: newDownloadURLCache(downloadCacheCapacity),
-		mediaCache:    newMediaResolutionCache(downloadCacheCapacity),
-		preIDCache:    newPreIDCache(preIDCacheCapacity),
+		downloadCache:  newDownloadURLCache(downloadCacheCapacity),
+		mediaCache:     newMediaResolutionCache(downloadCacheCapacity),
+		preIDCache:     newPreIDCache(preIDCacheCapacity),
+		sourceFailures: newSourceFailureBackoff(sourceFailureBackoffCapacity),
 	}, nil
 }
 
@@ -748,7 +750,8 @@ func (service *Service) resolveWithAccounts(
 		}
 	}()
 
-	lockedTarget, taskID, preexisting, err := service.resolveUnderLock(ctx, source, playback, *sourceFile, query, quota, request.AuthorizeTransfer)
+	failureKey := sourceFailureBackoffKey(source, playback, *sourceFile, request)
+	lockedTarget, taskID, preexisting, err := service.resolveUnderLock(ctx, source, playback, *sourceFile, query, quota, request.AuthorizeTransfer, failureKey)
 	if err != nil {
 		return RedirectCandidate{}, err
 	}
@@ -810,6 +813,7 @@ func (service *Service) resolveUnderLock(
 	query p115integration.FileQuery,
 	quota *transferQuotaContext,
 	authorizeTransfer func() TransferAuthorization,
+	failureKey string,
 ) (p115integration.File, string, bool, error) {
 	target, found, err := service.searchTarget(ctx, playback, query)
 	if err != nil {
@@ -827,6 +831,9 @@ func (service *Service) resolveUnderLock(
 	if !authorization.Allowed {
 		log.Printf("[DirectPlay] 跳过新增转存 code=playback_intent_required playbackAccountId=%s", playback.Credential.AccountID)
 		return p115integration.File{}, "", false, ErrPlaybackIntentRequired
+	}
+	if err := service.cachedSourceFailure(ctx, failureKey, source, sourceFile); err != nil {
+		return p115integration.File{}, "", false, err
 	}
 	scopes, scopeErr := service.compatibilityQuotaScopes(quota, playback, authorization.CompatibilityLimits)
 	if scopeErr != nil {
@@ -888,7 +895,9 @@ func (service *Service) resolveUnderLock(
 	preIDRange := boundedRange(sourceFile.Size)
 	preIDHash, err := service.sourcePreID(ctx, source, sourceFile)
 	if err != nil {
-		return service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", service.reportProviderFailure(ctx, source, failureOperationHashSourcePreID, err))
+		file, id, preexisting, failure := service.failTask(ctx, task.ID, "preid_failed", "source preID range failed", service.reportProviderFailure(ctx, source, failureOperationHashSourcePreID, err))
+		service.rememberSourceFailure(ctx, failureKey, err, failure, source, sourceFile)
+		return file, id, preexisting, failure
 	}
 	preID, err := validateRangeHash(preIDHash, preIDRange)
 	if err != nil {

@@ -34,13 +34,14 @@
 - 已完成或废弃的旧方案：移到 `docs/archive/`
 - 稳定规则或现行事实：提炼到 `docs/reference/` 或 `docs/system-architecture.md`
 
-截至 2026-10-25，`docs/plan/` 共 10 份现行实施稿：3 份继续推进实现或验收、6 份待开发、1 份处于观察期。实施归档和外部验收分开记录，未验证事项由主计划或现行 runbook/reference 跟踪。
+截至 2026-11-03，`docs/plan/` 共 11 份现行实施稿：4 份继续推进实现或验收、6 份待开发、1 份处于观察期。实施归档和外部验收分开记录，未验证事项由主计划或现行 runbook/reference 跟踪。
 
 - [自助注册人数上限](./access-auth/registration-user-capacity.md)（待开发）
 - [分组观看保号](./billing-redemption/watch-activity-renewal.md)（实现、专用 PostgreSQL 与管理员页面验收完成；10 月 18 日起点修复已落地，10 月 23 日有包含该修复的历史部署记录；用户端页面、真实考核与权限同步仍待验收）
 - [Emby–115 DirectPlay 总计划](./architecture/emby-115-direct-play-gateway.md)（播放数据面主体完成，单 Gateway 运维功能与部分真实取证待完成）
 - [Gateway 客户端兼容与转存策略](./architecture/gateway-client-compatibility.md)（本地与远端 CI 已通过，e78d8f80 已部署 hz 并完成四容器健康及稳定性检查；承接起播许可和 SenPlayer 分项验收，真实客户端与性能收益仍待验证；转存策略保持默认严格）
 - [运行期配置缓存演进](./architecture/runtime-settings-cache-evolution.md)（观察期，尚未排期；没有实证不替换）
+- [Gateway 只读路径优化](./architecture/gateway-read-path-optimization.md)（失败退避、专用连接池和图片缓存本地实现 / 验证完成；待部署与真实收益验收）
 - [Telegram 通知静音规则](./bot-telegram/notification-mute-rules.md)（待开发；已有结果通知不等于静音治理）
 - [群签到与双途径保号](./bot-telegram/group-checkin-retention.md)（产品规则已确认，整体待实施；正文已同步 10 月 18 日观看保号起点边界，首次日期持久化、签到、迁移与双条件考核尚未实现）
 - [设备风控自动化](./console-admin/device-risk-automation.md)（待开发）

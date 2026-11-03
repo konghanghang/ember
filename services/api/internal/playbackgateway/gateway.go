@@ -169,7 +169,7 @@ func New(config Config) (*Gateway, error) {
 	}
 	transport := config.Transport
 	if transport == nil {
-		transport = http.DefaultTransport
+		transport = newEmbyTransport()
 	}
 	applyLogLevel := config.ApplyLogLevel
 	if applyLogLevel == nil {
@@ -204,7 +204,9 @@ func New(config Config) (*Gateway, error) {
 		maxPlaybackSessionRequestBytes: defaultPlaybackSessionRequestMaxSize,
 	}
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
-	proxy.Transport = transport
+	// Only already-routed proxy traffic can use the image cache. Internal
+	// PlaybackInfo lookups keep the raw transport and cannot inherit this cache.
+	proxy.Transport = newImageCachingTransport(transport, logger)
 	proxy.ErrorLog = log.New(io.Discard, "", 0)
 	proxy.ErrorHandler = gateway.handleUpstreamError
 	proxy.ModifyResponse = gateway.observeResponse

@@ -45,6 +45,32 @@ def offline_result(frames, rows=None):
 
 
 class DiagnosticLogTests(unittest.TestCase):
+    def test_read_path_optimization_logs_keep_only_code_specific_fields(self):
+        """Keep fixed cache/pool evidence without expanding existing outcome enums."""
+        fixtures = [
+            ("image_cache_result", {"outcome": "hit"}),
+            ("image_cache_result", {"outcome": "filled"}),
+            ("source_failure_backoff", {"outcome": "stored", "reasonCode": "download_host_not_allowed"}),
+            ("source_failure_backoff", {"outcome": "hit", "reasonCode": "download_host_not_allowed"}),
+            ("emby_transport_ready", {"ownership": "runtime", "maxIdleConns": "128",
+                "maxIdleConnsPerHost": "32", "dialTimeoutMs": "5000", "tlsHandshakeTimeoutMs": "5000"}),
+        ]
+        for code, fields in fixtures:
+            with self.subTest(code=code, fields=fields):
+                row = logs.filter_line(log_line(code, **fields, requestId="0123456789abcdef-1",
+                    sourceAccountId=SECRET, sourceFileId=SECRET, path=SECRET, Cookie=SECRET,
+                    host=SECRET, URL=SECRET, message=SECRET))
+                self.assertIsNotNone(row)
+                for key, expected in fields.items():
+                    self.assertEqual(row[key], expected)
+                self.assertNotIn(SECRET, json.dumps(row))
+        for code in ["image_cache_result", "source_failure_backoff"]:
+            row = logs.filter_line(log_line(code, outcome=SECRET, reasonCode=SECRET))
+            self.assertNotIn("outcome", row)
+            self.assertNotIn("reasonCode", row)
+        row = logs.filter_line(log_line("request_completed", outcome="filled"))
+        self.assertNotIn("outcome", row)
+
     def test_request_completion_keeps_fixed_shape_and_drops_raw_metadata(self):
         row = logs.filter_line(log_line(
             "request_completed", requestId="0123456789abcdef-1", method="GET", route="item_image",

@@ -16,7 +16,7 @@
 
 `docs/plan/` 经过整理后，当前主要剩余内容为：
 
-- 10 份现行实施稿：3 份继续推进实现或验收、6 份待开发、1 份观察期
+- 11 份现行实施稿：4 份继续推进实现或验收、6 份待开发、1 份观察期
 - 功能方案模板与后续新增实施稿入口
 
 2026-10-25 完成计划复核和四份归档：套餐权益、个人 115/Redis 的实施已收尾；起播许可和 SenPlayer 旧专项由客户端兼容主计划接替。未完成业务/外部验收分别保留在[权益升级手册](../runbooks/entitlements-upgrade.md)、[115 端到端参考](../reference/p115-playback-end-to-end-flow.md)和[客户端兼容主计划](../plan/architecture/gateway-client-compatibility.md)，不因归档改写为通过。现行数量与逐项状态见[计划盘点](./plan-inventory.md#当前结论)。

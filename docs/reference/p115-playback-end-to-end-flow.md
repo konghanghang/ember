@@ -635,6 +635,14 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 仓库外采集产物使用更窄的逐 code 过滤，新增 `diagnosticSummary` 将认证、图片、回退、耗时和缓存结果按已观察证据汇总。应用日志只在唯一且一致的 requestId 内关联，冲突标记歧义；图片 `upstreamStatus` 保持 unknown，登录上游 200 不证明本地 Token 映射成功。PCAP 与 Gateway 日志不能按时间相邻自动合并，包端响应头与应用阶段耗时分别保留，不相加推断首帧；字段和使用边界见[采集手册](../runbooks/gateway-packet-capture.md#4-离线分析与对照)。
 
+### 8.4 只读路径优化
+
+源 preID 的稳定 URL 主机政策拒绝可进入独立的 `10s/1024` 条失败退避；当前身份、源解析、账号、租约、目标双查与起播许可继续检查，已有目标和较新的成功 preID 优先。命中仅省略后续配额预占、任务写入及失败源读取，不触发秒传；取消、超时、临时故障和持久化失败不建立共享拒绝。隔离和失效合同见[Cookie 合同 9.3](./p115-cookie-playback-contract.md#93-稳定源取链失败的短期退避ember-内部合同)。
+
+Gateway 使用自有 Emby 连接池及门控后的精确图片缓存；客户端条件头、强制重验、Range 和不可缓存图片继续透传，内部 PlaybackInfo / 视频 / 字幕不使用图片缓存。HTTP 新鲜度、304、HEAD、内存上限及取消边界见[播放代理合同 2.3](./emby-playback-proxy-contract.md#23-上游连接池与图片缓存)。两项缓存均不增加起播许可或 115 文件。
+
+新增 `source_failure_backoff`、`image_cache_result`、`emby_transport_ready` 诊断按各自 code 限定字段，不能混用请求完成的 outcome 枚举；源码 / 测试事实与真实收益分别跟踪于[只读路径优化计划](../plan/architecture/gateway-read-path-optimization.md)。
+
 ## 9. 数据与秘密边界
 
 | 数据 | 存放位置 | 禁止位置 |

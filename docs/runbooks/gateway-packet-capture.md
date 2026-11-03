@@ -84,6 +84,8 @@ python3 -B scripts/gateway-capture/gateway_capture.py logs \
 
 离线读取日志 JSON 时直接重新校验字典，不把键值拼回日志文本；嵌套对象、数组、越界数字和伪造字段均不能绕过相同白名单。`usernameState/pwState/passwordState` 不含字段值，非空不证明凭据正确；解析失败与最终 HTTP 状态是两个独立观察。
 
+只读优化诊断使用独立字段白名单：`image_cache_result` 仅接纳内部 requestId 与 `hit|filled|bypass|error`；`source_failure_backoff` 仅接纳 `stored|hit` 与固定 `download_host_not_allowed`，丢弃原始源账号 / 文件标识；`emby_transport_ready` 只保留 runtime 所有权及有界连接池 / 超时参数。图片缓存结果不证明上游本轮被调用或客户端显示成功，退避命中不代表新增转存。原始路径、Host、Header、凭据和图片字节继续丢弃。
+
 首次转存归因仅保留 `transferTrigger=explicit_playback|session_playback|compatible_request|existing_target|policy_denied` 五种固定值，未知值丢弃。`playback_activity_observed` 仅表示已接受事件匹配授权媒体，不等于建立 Redis 租约或客户端完成播放；`playback_event_received.contentType` 仅保留固定类别。兼容子限额拒绝使用 `compatibility_quota_exceeded`。白名单同时接纳 `transfer_policy_unavailable`、`playback_info_revalidation_started`、`playback_info_revalidated` 和 `playback_info_revalidation_failed`，用于区分策略拒绝、已有目标复用和固定会话重新核验；继续丢弃原始错误类型/消息、凭据和 URL。
 
 原文件匹配诊断保留固定 `video_original_mp4_accepted` / `video_original_mkv_accepted` 与 `evidence=local_mp4_proof|local_mkv_proof`；未知 evidence 丢弃。匹配诊断只证明受限路径通过媒体证明检查，不证明随后一定返回 302 或已经完成播放。工具现已接纳 `playback_fallback`、`playback_rejected` 和 `playback_canceled` 的固定决策字段；旧工具遗漏取消行或新采集窗口缺行都不能证明没有取消，不放开原始日志透传。

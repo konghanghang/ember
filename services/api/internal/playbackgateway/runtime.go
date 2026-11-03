@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	configpkg "github.com/konghang/ember/backend/internal/config"
@@ -95,6 +96,9 @@ type Runtime struct {
 	logger           *log.Logger
 	shutdownTimeout  time.Duration
 	dependencyCloser io.Closer
+	ownedTransport   *http.Transport
+	closeOnce        sync.Once
+	closeErr         error
 }
 
 // NewProductionRuntime loads deployment and ConfigService values, verifies the
@@ -111,7 +115,25 @@ func NewProductionRuntime(
 	if err != nil {
 		return nil, err
 	}
-	verifier, err := embypkg.NewServerIdentityVerifier(config.embyURL, config.embyAPIKey, dependencies.Transport)
+	transport := dependencies.Transport
+	var ownedTransport *http.Transport
+	if transport == nil {
+		ownedTransport = newEmbyTransport()
+		transport = ownedTransport
+	}
+	var dependencyCloser io.Closer
+	constructionComplete := false
+	defer func() {
+		if !constructionComplete {
+			if ownedTransport != nil {
+				ownedTransport.CloseIdleConnections()
+			}
+			if dependencyCloser != nil {
+				_ = dependencyCloser.Close()
+			}
+		}
+	}()
+	verifier, err := embypkg.NewServerIdentityVerifier(config.embyURL, config.embyAPIKey, transport)
 	if err != nil {
 		return nil, ErrRuntimeConfig
 	}
@@ -128,7 +150,6 @@ func NewProductionRuntime(
 	}
 	directPlayService := dependencies.DirectPlayService
 	playbackSessionService := dependencies.PlaybackSessionService
-	var dependencyCloser io.Closer
 	if directPlayService == nil {
 		directPlayService, playbackSessionService, dependencyCloser, err = newProductionDirectPlayService(
 			dependencies.Database, config.encryptionKey, identity.ID, config.redisURL, config.businessTimezone,
@@ -158,7 +179,7 @@ func NewProductionRuntime(
 		WebSurfacePolicy:       dependencies.Settings,
 		LogLevelPolicy:         dependencies.Settings,
 		TransferTriggerPolicy:  dependencies.Settings,
-		Transport:              dependencies.Transport,
+		Transport:              transport,
 		Logger:                 logger,
 		DebugEnabled:           logpkg.DebugEnabled,
 	})
@@ -168,7 +189,7 @@ func NewProductionRuntime(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", healthHandler)
 	mux.Handle("/", gateway)
-	return &Runtime{
+	runtime := &Runtime{
 		server: &http.Server{
 			Addr:              playbackGatewayListenAddress,
 			Handler:           mux,
@@ -181,7 +202,15 @@ func NewProductionRuntime(
 		logger:           logger,
 		shutdownTimeout:  runtimeShutdownTimeout,
 		dependencyCloser: dependencyCloser,
-	}, nil
+		ownedTransport:   ownedTransport,
+	}
+	if ownedTransport != nil {
+		logger.Printf("[PlaybackGateway] code=emby_transport_ready ownership=runtime maxIdleConns=%d maxIdleConnsPerHost=%d dialTimeoutMs=%d tlsHandshakeTimeoutMs=%d",
+			embyTransportMaxIdleConns, embyTransportMaxIdleConnsPerHost,
+			embyTransportDialTimeout.Milliseconds(), embyTransportTLSHandshakeTimeout.Milliseconds())
+	}
+	constructionComplete = true
+	return runtime, nil
 }
 
 type embyVersion [4]uint32
@@ -284,15 +313,31 @@ func (runtime *Runtime) ServerIdentity() embypkg.ServerIdentity {
 	return runtime.identity
 }
 
+// Close releases process-owned dependencies and idle Emby connections once.
+// Call it after serving stops, or when an embedded runtime will not be run;
+// explicitly injected transports remain owned by their callers.
+func (runtime *Runtime) Close() error {
+	if runtime == nil {
+		return nil
+	}
+	runtime.closeOnce.Do(func() {
+		if runtime.ownedTransport != nil {
+			runtime.ownedTransport.CloseIdleConnections()
+		}
+		if runtime.dependencyCloser != nil {
+			runtime.closeErr = runtime.dependencyCloser.Close()
+		}
+	})
+	return runtime.closeErr
+}
+
 // Run opens the configured listener only after construction succeeded and
 // coordinates http.Server shutdown with the supplied process context.
 func (runtime *Runtime) Run(ctx context.Context) error {
 	if runtime == nil || runtime.server == nil || runtime.listen == nil || runtime.logger == nil || ctx == nil {
 		return ErrRuntimeDependency
 	}
-	if runtime.dependencyCloser != nil {
-		defer func() { _ = runtime.dependencyCloser.Close() }()
-	}
+	defer func() { _ = runtime.Close() }()
 	if ctx.Err() != nil {
 		return nil
 	}

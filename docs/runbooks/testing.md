@@ -138,6 +138,20 @@ go test ./internal/app -run Integration -count=1
 make test-api-report
 ```
 
+### Gateway 只读路径优化专项
+
+在 `services/api` 工作目录执行：
+
+```bash
+go test ./internal/playbackgateway -run '^(TestImageCache|TestGatewayImageCache|TestEmbyTransport|TestRuntime.*Transport)' -count=1 -timeout=120s
+go test ./internal/services/directplay -run '^TestSourceFailureBackoff' -count=1 -timeout=120s
+go test -race ./internal/playbackgateway ./internal/services/directplay ./internal/integrations/p115 ./internal/services/p115account ./internal/services/p115quota -skip 'Integration|PostgreSQL' -count=1 -timeout=180s
+```
+
+图片专项覆盖成功 GET/HEAD 复用、门控后撤销/过期、身份与变体隔离、ETag / Last-Modified 内部 304、Age / Date、强制刷新与客户端条件请求旁路、不可缓存响应单人交接、原流读错/超大保真、全部等待者取消及资源上限。连接池以本地 fake 上游统计两批并发请求的实际建连，覆盖注入所有权、失败/退出清理、流式取消和 WebSocket。失败退避覆盖稳定 typed URL 错误的重复读取与失败任务减少、10 秒到期、两侧凭证/配置/文件/调用者隔离、已有目标和成功 preID 优先、HEAD/许可/配额边界及取消不污染。
+
+采集工具在仓库根执行 `python3 -B -m unittest discover -s scripts/gateway-capture/tests`；三个新增 code 按各自 schema 脱敏，不扩大既有请求 outcome。最后复用全量非数据库 Go 测试、vet/build 与跨语言合同检查。以上只有 fake/本地证据，不宣称生产首屏、命中率或客户端验收通过；进度见[只读路径优化计划](../plan/architecture/gateway-read-path-optimization.md)。
+
 ### Web 改动
 
 ```bash

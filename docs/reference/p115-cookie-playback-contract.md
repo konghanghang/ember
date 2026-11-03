@@ -608,7 +608,17 @@ playbackAccountId + SHA1 + size
 | 上传 / 目标复核 / 最终取链 | 2 / 2 / 2 | 2 / 2 / 2 |
 | 独立任务 / 每位用户转存额度 | 2 / 各 1 | 2 / 各 1 |
 
-身份、并发、失败/取消与恢复探测回归，以及全量非数据库 Go 测试、DirectPlay/账号/配额/115 Adapter/Gateway 五包 race、vet/build 和独立审查均已完成。采集工具 39 项离线测试和 Go 日志→Python 摘要串接复验同样通过，具体命令见[测试指南](../runbooks/testing.md)。未部署，未访问真实 Emby、115 或数据库；上述计数不能推导真实缓存命中率、首帧或起播时延收益。本轮不增加图片/字幕缓存、预热、负缓存、连接池调参、Web UI、配置或 migration。
+身份、并发、失败/取消与恢复探测回归，以及全量非数据库 Go 测试、DirectPlay/账号/配额/115 Adapter/Gateway 五包 race、vet/build 和独立审查均已完成。采集工具 39 项离线测试和 Go 日志→Python 摘要串接复验同样通过，具体命令见[测试指南](../runbooks/testing.md)。未部署，未访问真实 Emby、115 或数据库；上述计数不能推导真实缓存命中率、首帧或起播时延收益。2026-10-25 该增量不增加图片/字幕缓存、预热、负缓存、连接池调参、Web UI、配置或 migration。
+
+### 9.3 稳定源取链失败的短期退避（Ember 内部合同）
+
+DirectPlay 仅对源 preID 读取返回的类型化 `DownloadURLPolicyError(host_not_allowed)` 记录独立的短期拒绝，不把泛型协议错误放入成功 preID 缓存，也不改变下载主机白名单。
+
+- 固定 `10s`、`1024` 条 LRU；访问不延长期限，过期和时钟回退删除。键绑定已验证的完整源文件与路径、源 / playback 账号精确凭据和正配置代次、调用者 / 登录映射 / 设备 / 实际 UA，仅摘要留存。没有完整请求边界、未知代次和恢复探测不读取或发布退避。
+- 已有媒体、目标文件和较新的成功 preID 证据优先。退避检查位于锁内二次查重和当前转存许可之后、配额和任务创建之前；仍执行必要的源解析、目标查重、实时身份 / 账号 / 租约门控，不省略这些检查。
+- 命中沿原 `hash_source_preid` 和固定 Provider 细节回退 Emby，不创建失败任务、预占转存额度或再次读取 preID / 秒传，不重放账号故障。只在本次失败任务成功持久化、调用者仍有效时建立退避。
+- 取消、deadline、临时 Provider 故障、裸协议错误、Redis / 数据库失败、许可和并发拒绝均不缓存。退避只减少短期重复失败，不能代替真实 URL 域名合同核对。
+- Debug `source_failure_backoff` 仅含 `outcome=stored|hit`、固定 `reasonCode=download_host_not_allowed` 和内部源账号 / 文件标识；不保留原始 error、URL、Host 或凭据。仓库外采集继续丢弃账号和文件标识。
 
 ## 10. 保留、冷却与未来清理
 

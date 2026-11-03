@@ -21,6 +21,7 @@ _CODES.update({"transfer_policy_unavailable", "playback_info_revalidation_starte
                "playback_info_revalidated", "playback_info_revalidation_failed", "playback_activity_observed"})
 _CODES.update({"request_completed", "authentication_request_shape", "authentication_upstream_response",
                "application_header_parse_failed", "playback_fallback", "playback_rejected", "playback_canceled"})
+_CODES.update({"image_cache_result", "source_failure_backoff", "emby_transport_ready"})
 _NUMERIC = {"itemId", "statusCode", "upstreamStatus", "rangeStart", "rangeEnd", "rangeLength",
             "positionTicks", "proofCount", "accountReservedStreams", "accountActiveStreams",
             "accountOccupiedStreams", "userReservedStreams", "userActiveStreams", "userOccupiedStreams",
@@ -131,7 +132,17 @@ _ENUMS = {
     "proxyErrorCode": {"request_canceled", "upstream_unavailable"},
 }
 _COMMON_FIELDS = {"code", "level", "requestId"}
+_READ_PATH_ENUMS = {
+    "image_cache_result": {"outcome": {"hit", "filled", "bypass", "error"}},
+    "source_failure_backoff": {"outcome": {"stored", "hit"},
+                               "reasonCode": {"download_host_not_allowed"}},
+    "emby_transport_ready": {"ownership": {"runtime"}},
+}
+_POOL_FIELDS = {"maxIdleConns", "maxIdleConnsPerHost", "dialTimeoutMs", "tlsHandshakeTimeoutMs"}
 _STRICT_FIELDS = {
+    "image_cache_result": _COMMON_FIELDS | {"outcome"},
+    "source_failure_backoff": _COMMON_FIELDS | {"outcome", "reasonCode"},
+    "emby_transport_ready": _COMMON_FIELDS | {"ownership"} | _POOL_FIELDS,
     "request_completed": _COMMON_FIELDS | _COUNTS | {"method", "pathTruncated", "queryKeysTruncated", "route",
         "pathMode", "statusCode", "outcome", "durationMs", "xEmbyTokenState", "xMediaBrowserTokenState",
         "applicationScheme", "embeddedTokenState", "apiKeyQueryPresent", "queryTokenState", "userAgentFamily",
@@ -180,7 +191,13 @@ def filter_record(values):
             value = str(value).lower()
         if not isinstance(value, str) or len(value) > 128:
             continue
-        if code == "application_header_parse_failed" and key == "reasonCode":
+        if key in _READ_PATH_ENUMS.get(code, {}):
+            if value in _READ_PATH_ENUMS[code][key]:
+                row[key] = value
+        elif code == "emby_transport_ready" and key in _POOL_FIELDS:
+            if bounded_decimal(value, 2**31 - 1):
+                row[key] = value
+        elif code == "application_header_parse_failed" and key == "reasonCode":
             if value in _PARSE_REASONS:
                 row[key] = value
         elif code == "authentication_request_shape" and key == "bodyState":

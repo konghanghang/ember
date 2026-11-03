@@ -98,6 +98,21 @@ X-Emby-Token: <admin-api-key>
 - API Key 只存在于请求 Header，禁止进入错误、日志、响应、指标或持久化；上游 URL 和完整响应体同样不得进入错误或日志。
 - 自动化只使用 fake Emby；目标实例完成显式只读验证前，仍不能宣称其版本、ServerId 和运行行为已确认。
 
+### 2.3 上游连接池与图片缓存
+
+Gateway 缺省为 Emby 构造独立的标准 HTTP Transport：全局 / 每主机最多保留 `128/32` 个空闲连接，空闲期限 `90s`，建连与 TLS 握手分别最多 `5s`，保留环境代理、证书校验、HTTP/2 和 Keep-Alive。不设视频总请求时限或每主机活跃连接硬上限。身份核对、普通代理和内部 PlaybackInfo 共用该池；构造失败、Runtime 关闭或运行退出时只清理自有池和依赖，调用方显式注入的 Transport 不被关闭。
+
+图片缓存只包装普通代理的 Transport，内部 PlaybackInfo 使用原始 Transport。它不改变现有精确匿名图片范围；受保护图片每次先执行当前 Token / Principal / 用户资格门控，缓存命中不能绕过撤销或过期。匿名和受保护表示分别隔离，上游 URL、完整 query、身份与请求 Header 以摘要参与键，保留尺寸、质量、格式、tag、索引和内容协商差异，不保存明文凭据。
+
+- 仅现有精确图片 GET 可填充缓存；HEAD 只读取新鲜 GET 的元数据且正文为空，未命中直接透传。
+- 最多 `256` 条、总正文 `32 MiB`、单体 `2 MiB`、响应元数据 `16 KiB`；新鲜期最多 `5m`，固定保留最多 `10m`，时钟回退失效。只接受合适的 `200 image/*`，不保留 `Set-Cookie`、Trailer、分段响应、`private/no-store`、未知或非法缓存策略和 `Vary:*`。
+- 按 `Cache-Control`、`Expires`、`Date/Age` 计算 HTTP 新鲜度，包含上游读取耗时；无明确新鲜度时只保留可用 ETag / Last-Modified 的表示并逐次重验。内部过期 GET 的 `304` 更新安全元数据后复用原 `200` 正文，不把内部 304 发给无条件客户端。HTTP 日期按协议在边界解析，不引入业务时区。
+- 客户端条件请求、Range / If-Range、强制重验的 `no-cache` / `max-age=0` / `Pragma: no-cache`、带正文或 Upgrade 的请求一律透明旁路。强制重验请求不加入普通在途读取，不用缓存结果替代上游验证。
+- 相同可缓存读取可合并，每个等待者独立取消；最后一个退出时取消上游，不发布已取消代次。最多 `16` 个在途键、每键 `64` 位等待者，达到上限旁路；按单体上限计算，受控候选正文最多约 `32 MiB`，不包含读取缓冲扩容和透明代理本身的内存。不可缓存响应（包括重验 304 新增 Cookie 或改为私有策略）仅交给一位等待者，其余各自透传，避免共享 Cookie 或未知响应。
+- 超大或读取失败时按原顺序重放已读字节、错误和剩余流；不使用过期图片兜底。图片 miss / 重验不调用 DirectPlay，也不创建 115 文件；普通视频、字幕和 API 不进入此缓存。
+
+Debug `image_cache_result` 只记录内部 requestId 和 `outcome=hit|filled|bypass|error`；生产自有池初始化记录 `emby_transport_ready` 的固定容量与超时，不输出上游地址或凭据。自动化与后续真实收益验证见[只读路径优化计划](../plan/architecture/gateway-read-path-optimization.md)。
+
 ## 3. 用户认证合同
 
 ### 3.1 用户名密码认证
