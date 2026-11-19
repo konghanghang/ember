@@ -87,42 +87,32 @@ func (s *gormAccountStore) GetSharedPlaybackMetadata(ctx context.Context) (*mode
 }
 
 // AcquirePlaybackRoute loads credentials only for the exact configuration version
-// admitted by Redis and serializes expired-cooldown half-open probes.
+// admitted by Redis and serializes expired-cooldown half-open probes. Active
+// rows are served by a plain read so a shared playback account does not
+// serialize every playback start on its row lock.
 func (s *gormAccountStore) AcquirePlaybackRoute(ctx context.Context, route PlaybackRoute, now, probeUntil time.Time) (*models.P115Account, error) {
-	var account models.P115Account
-	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
-		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("id = ? AND role = ? AND enabled = ? AND config_version = ?",
-				route.AccountID, models.P115AccountRolePlayback, true, route.ConfigVersion)
+	scope := func(db *gorm.DB) *gorm.DB {
+		query := db.Where("id = ? AND role = ? AND enabled = ? AND config_version = ?",
+			route.AccountID, models.P115AccountRolePlayback, true, route.ConfigVersion)
 		if route.OwnerUserID == "" {
-			query = query.Where("owner_user_id IS NULL")
-		} else {
-			query = query.Where("owner_user_id = ?", route.OwnerUserID)
+			return query.Where("owner_user_id IS NULL")
 		}
-		if err := query.First(&account).Error; err != nil {
-			return err
-		}
-		switch account.Status {
-		case models.P115AccountStatusActive:
-			return nil
-		case models.P115AccountStatusCoolingDown:
-			if account.CooldownUntil == nil || account.CooldownUntil.After(now) {
-				return ErrAccountCoolingDown
+		return query.Where("owner_user_id = ?", route.OwnerUserID)
+	}
+	var account models.P115Account
+	err := scope(s.database(ctx)).First(&account).Error
+	if err == nil && account.Status == models.P115AccountStatusActive {
+		return &account, nil
+	}
+	if err == nil {
+		account = models.P115Account{}
+		err = s.database(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := scope(tx.Clauses(clause.Locking{Strength: "UPDATE"})).First(&account).Error; err != nil {
+				return err
 			}
-			result := tx.Model(&models.P115Account{}).
-				Where("id = ? AND status = ? AND updated_at = ?", account.ID, models.P115AccountStatusCoolingDown, account.UpdatedAt).
-				Updates(map[string]interface{}{"cooldown_until": probeUntil, "updated_at": now})
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected == 0 {
-				return ErrRuntimeStateChanged
-			}
-			return tx.Where("id = ?", account.ID).First(&account).Error
-		default:
-			return ErrAccountUnavailable
-		}
-	})
+			return leaseRuntimeProbe(tx, &account, now, probeUntil)
+		})
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrRuntimeStateChanged
 	}

@@ -136,44 +136,34 @@ func (s *gormAccountStore) GetEnabledSourceLocation(ctx context.Context) (*model
 // AcquireRuntimeByRole returns an active account or leases one expired
 // cooldown probe while holding the account row lock. The probe lease keeps
 // concurrent Gateway replicas from retrying the same Provider account.
+//
+// Active accounts need no mutation, so they are served by a plain read; only
+// non-active rows take the transaction and row lock. This keeps every video
+// request from serializing on the single global source row.
 func (s *gormAccountStore) AcquireRuntimeByRole(
 	ctx context.Context,
 	role models.P115AccountRole,
 	now time.Time,
 	probeUntil time.Time,
 ) (*models.P115Account, error) {
+	scope := func(db *gorm.DB) *gorm.DB {
+		return db.Where("owner_user_id IS NULL AND role = ? AND status <> ? AND enabled = ?",
+			role, models.P115AccountStatusRevoked, true)
+	}
 	var account models.P115Account
-	err := s.database(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("owner_user_id IS NULL AND role = ? AND status <> ? AND enabled = ?",
-				role, models.P115AccountStatusRevoked, true).
-			First(&account).Error; err != nil {
-			return err
-		}
-		switch account.Status {
-		case models.P115AccountStatusActive:
-			return nil
-		case models.P115AccountStatusCoolingDown:
-			if account.CooldownUntil == nil || account.CooldownUntil.After(now) {
-				return ErrAccountCoolingDown
+	err := scope(s.database(ctx)).First(&account).Error
+	if err == nil && account.Status == models.P115AccountStatusActive {
+		return &account, nil
+	}
+	if err == nil {
+		account = models.P115Account{}
+		err = s.database(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := scope(tx.Clauses(clause.Locking{Strength: "UPDATE"})).First(&account).Error; err != nil {
+				return err
 			}
-			result := tx.Model(&models.P115Account{}).
-				Where("id = ? AND status = ? AND updated_at = ?", account.ID, models.P115AccountStatusCoolingDown, account.UpdatedAt).
-				Updates(map[string]interface{}{
-					"cooldown_until": probeUntil,
-					"updated_at":     now,
-				})
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected == 0 {
-				return ErrRuntimeStateChanged
-			}
-			return tx.Where("id = ?", account.ID).First(&account).Error
-		default:
-			return ErrAccountUnavailable
-		}
-	})
+			return leaseRuntimeProbe(tx, &account, now, probeUntil)
+		})
+	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrAccountUnavailable
 	}
@@ -181,6 +171,35 @@ func (s *gormAccountStore) AcquireRuntimeByRole(
 		return nil, safeP115AccountStoreError("acquire_runtime_by_role", err)
 	}
 	return &account, nil
+}
+
+// leaseRuntimeProbe runs under the account row lock: active rows pass,
+// unexpired cooldown rejects, and an expired cooldown is leased to exactly one
+// caller by moving cooldown_until forward with an updated_at CAS.
+func leaseRuntimeProbe(tx *gorm.DB, account *models.P115Account, now, probeUntil time.Time) error {
+	switch account.Status {
+	case models.P115AccountStatusActive:
+		return nil
+	case models.P115AccountStatusCoolingDown:
+		if account.CooldownUntil == nil || account.CooldownUntil.After(now) {
+			return ErrAccountCoolingDown
+		}
+		result := tx.Model(&models.P115Account{}).
+			Where("id = ? AND status = ? AND updated_at = ?", account.ID, models.P115AccountStatusCoolingDown, account.UpdatedAt).
+			Updates(map[string]interface{}{
+				"cooldown_until": probeUntil,
+				"updated_at":     now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrRuntimeStateChanged
+		}
+		return tx.Where("id = ?", account.ID).First(account).Error
+	default:
+		return ErrAccountUnavailable
+	}
 }
 
 // UpdateSourceLocation changes only a source account while holding its row lock.

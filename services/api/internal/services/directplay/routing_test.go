@@ -20,6 +20,16 @@ type fakeRoutedAccountRuntime struct {
 	routeErr     error
 	acquireErr   error
 	acquireCalls int
+	sourceLoads  int
+}
+
+// LoadActiveCredentialByRole counts source loads because the real loader may
+// hand out the global source account's single half-open probe.
+func (runtime *fakeRoutedAccountRuntime) LoadActiveCredentialByRole(ctx context.Context, role models.P115AccountRole) (p115account.ActiveAccountCredential, error) {
+	if role == models.P115AccountRoleSource {
+		runtime.sourceLoads++
+	}
+	return runtime.fakeAccountLoader.LoadActiveCredentialByRole(ctx, role)
 }
 
 func (runtime *fakeRoutedAccountRuntime) ResolvePlaybackRoute(_ context.Context, userID string, _ time.Time) (p115account.PlaybackRoute, error) {
@@ -422,6 +432,20 @@ func TestRoutedTransferCancelledAfterProviderReuseStillChargesQuota(t *testing.T
 	}, service.now())
 	if err != nil || usage.HourlyUsed != 1 || usage.DailyUsed != 1 || usage.Pending != 0 {
 		t.Fatalf("transfer usage = %+v, %v", usage, err)
+	}
+}
+
+// TestRoutedPlaybackUnavailableDoesNotTouchGlobalSource keeps a user's own
+// playback cooldown from consuming the global source account's probe lease.
+func TestRoutedPlaybackUnavailableDoesNotTouchGlobalSource(t *testing.T) {
+	accounts := &fakeRoutedAccountRuntime{acquireErr: p115account.ErrAccountCoolingDown}
+	service := newRoutedDirectPlayForTest(t, accounts, newFakeProvider(), p115quota.NewMemoryLeaseStore())
+
+	if _, err := service.ResolveMediaPath(context.Background(), routedMediaPathRequest("GET", "session-1")); !errors.Is(err, ErrAccountUnavailable) {
+		t.Fatalf("ResolveMediaPath() error = %v", err)
+	}
+	if accounts.acquireCalls != 1 || accounts.sourceLoads != 0 {
+		t.Fatalf("acquireCalls=%d sourceLoads=%d, want playback first and no source load", accounts.acquireCalls, accounts.sourceLoads)
 	}
 }
 

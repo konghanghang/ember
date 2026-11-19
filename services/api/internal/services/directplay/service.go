@@ -634,16 +634,20 @@ func (service *Service) loadRoutedAccounts(
 	route p115account.PlaybackRoute,
 	location p115account.SourceLocation,
 ) (p115account.ActiveAccountCredential, p115account.ActiveAccountCredential, error) {
-	source, err := service.accounts.LoadActiveCredentialByRole(ctx, models.P115AccountRoleSource)
-	if err != nil {
-		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
-			ErrAccountUnavailable, FailureContext{AccountRole: string(models.P115AccountRoleSource)},
-		)
-	}
+	// Acquire the routed playback account first. Either load may hand out a
+	// one-minute half-open probe; failing on the narrower playback scope must
+	// not consume the global source probe, which would hold every user on
+	// Emby fallback for another cooldown window.
 	playback, err := service.playbackRouter.AcquirePlaybackRoute(ctx, route)
 	if err != nil {
 		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
 			ErrAccountUnavailable, FailureContext{AccountRole: string(models.P115AccountRolePlayback)},
+		)
+	}
+	source, err := service.accounts.LoadActiveCredentialByRole(ctx, models.P115AccountRoleSource)
+	if err != nil {
+		return p115account.ActiveAccountCredential{}, p115account.ActiveAccountCredential{}, withFailureContext(
+			ErrAccountUnavailable, FailureContext{AccountRole: string(models.P115AccountRoleSource)},
 		)
 	}
 	if source.Credential.AccountID != location.AccountID || source.EmbyPathPrefix != location.EmbyPathPrefix ||

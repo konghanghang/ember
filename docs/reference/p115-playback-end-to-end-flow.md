@@ -639,6 +639,8 @@ Debug 请求摘要记录有界 method/Host/原始 request path、query key、rou
 
 源 preID 的稳定 URL 主机政策拒绝可进入独立的 `10s/1024` 条失败退避；当前身份、源解析、账号、租约、目标双查与起播许可继续检查，已有目标和较新的成功 preID 优先。命中仅省略后续配额预占、任务写入及失败源读取，不触发秒传；取消、超时、临时故障和持久化失败不建立共享拒绝。隔离和失效合同见[Cookie 合同 9.3](./p115-cookie-playback-contract.md#93-稳定源取链失败的短期退避ember-内部合同)。
 
+115 Cookie Provider、Adapter 和账号验证共享进程内唯一的 115 连接池（每主机 16 个空闲连接，保留标准代理与 TLS 校验，不改全局 Transport）；错误响应和提前返回按 64 KiB 上限排空 body 后关闭以复用连接，超过上限（如 Range 被回成整文件 200）直接关闭。
+
 Gateway 使用自有 Emby 连接池及门控后的精确图片缓存；客户端条件头、强制重验、Range 和不可缓存图片继续透传，内部 PlaybackInfo / 视频 / 字幕不使用图片缓存。HTTP 新鲜度、304、HEAD、内存上限及取消边界见[播放代理合同 2.3](./emby-playback-proxy-contract.md#23-上游连接池与图片缓存)。两项缓存均不增加起播许可或 115 文件。
 
 新增 `source_failure_backoff`、`image_cache_result`、`emby_transport_ready` 诊断按各自 code 限定字段，不能混用请求完成的 outcome 枚举；源码 / 测试事实与真实收益分别跟踪于[只读路径优化计划](../plan/architecture/gateway-read-path-optimization.md)。

@@ -1818,10 +1818,15 @@ func closeResponseBody(body io.ReadCloser) {
 	_ = body.Close()
 }
 
-// newCookieHTTPClient applies the shared timeout and fail-closed redirect policy for Cookie endpoints.
+// cookieHTTPClientTimeout bounds one whole Cookie request including its body.
+const cookieHTTPClientTimeout = 10 * time.Second
+
+// newCookieHTTPClient applies the shared timeout and fail-closed redirect
+// policy for Cookie endpoints over the process-wide 115 connection pool.
 func newCookieHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: 10 * time.Second,
+		Transport: sharedCookieTransport(),
+		Timeout:   cookieHTTPClientTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
