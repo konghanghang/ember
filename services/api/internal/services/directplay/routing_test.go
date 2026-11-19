@@ -395,6 +395,36 @@ func TestRoutedTransferFailureReleasesPendingQuota(t *testing.T) {
 	}
 }
 
+// TestRoutedTransferCancelledAfterProviderReuseStillChargesQuota locks the
+// Provider-success boundary: once rapid upload reused the file in 115, client
+// cancellation must not refund the pending quota or abandon target bookkeeping.
+func TestRoutedTransferCancelledAfterProviderReuseStillChargesQuota(t *testing.T) {
+	accounts := &fakeRoutedAccountRuntime{}
+	provider := newFakeProvider()
+	provider.searchResults = [][]p115integration.File{{}, {}}
+	provider.findTargetHonorsContext = true
+	quotas := p115quota.NewMemoryLeaseStore()
+	service := newRoutedDirectPlayForTest(t, accounts, provider, quotas)
+	tasks := service.store.(*fakeTaskStore)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	provider.afterUpload = cancel
+	if _, err := service.ResolveMediaPath(ctx, routedMediaPathRequest("GET", "session-1")); err == nil {
+		t.Fatal("ResolveMediaPath() error = nil, want cancellation after transfer")
+	}
+	if tasks.succeededTaskID != "task_1" || tasks.failedTaskID != "" {
+		t.Fatalf("task terminal state succeeded=%q failed=%q code=%q", tasks.succeededTaskID, tasks.failedTaskID, tasks.failedCode)
+	}
+	dayStart, dayEnd := p115quota.DayWindow(service.now(), time.UTC)
+	usage, err := quotas.TransferUsage(context.Background(), p115quota.TransferUsageRequest{
+		UserID: "user-1", DayStart: dayStart, DayEnd: dayEnd,
+	}, service.now())
+	if err != nil || usage.HourlyUsed != 1 || usage.DailyUsed != 1 || usage.Pending != 0 {
+		t.Fatalf("transfer usage = %+v, %v", usage, err)
+	}
+}
+
 type flakyTransferStore struct {
 	*p115quota.MemoryLeaseStore
 	mu             sync.Mutex

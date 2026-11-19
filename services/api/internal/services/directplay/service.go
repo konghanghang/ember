@@ -31,6 +31,9 @@ const (
 	reservationReleaseTimeout    = time.Second
 	transferCommitTimeout        = 2 * time.Second
 	transferCommitRetryInterval  = 50 * time.Millisecond
+	// providerReusedVerifyTimeout covers the adapter's 10s target-visibility
+	// polling plus one in-flight request after the caller has gone away.
+	providerReusedVerifyTimeout = 30 * time.Second
 )
 
 // ResolveRequest contains the already mapped source path and the actual
@@ -960,17 +963,23 @@ func (service *Service) resolveUnderLock(
 	default:
 		return service.failTask(ctx, task.ID, "provider_rejected", "rapid upload rejected", ErrRapidUploadUnavailable)
 	}
-	if err := service.markStatus(ctx, task.ID, models.PlaybackTransferTaskStatusVerifying); err != nil {
+	// 115 has already retained the file once rapid upload reports reuse. From
+	// here on, client cancellation or lease loss must not abort verification:
+	// aborting would refund pending quota while later requests reuse the file
+	// as preexisting, so the transfer would never be charged.
+	verifyCtx, cancelVerify := context.WithTimeout(context.WithoutCancel(ctx), providerReusedVerifyTimeout)
+	defer cancelVerify()
+	if err := service.markStatus(verifyCtx, task.ID, models.PlaybackTransferTaskStatusVerifying); err != nil {
 		return p115integration.File{}, "", false, err
 	}
-	finishVerify := measureStage(ctx, "targetVerify")
-	target, err = service.provider.FindTargetFile(ctx, playback.Credential, query)
+	finishVerify := measureStage(verifyCtx, "targetVerify")
+	target, err = service.provider.FindTargetFile(verifyCtx, playback.Credential, query)
 	finishVerify()
 	if err != nil {
-		return service.failTask(ctx, task.ID, "target_verify_failed", "target verification failed", service.reportProviderFailure(ctx, playback, failureOperationVerifyPlaybackTarget, err))
+		return service.failTask(verifyCtx, task.ID, "target_verify_failed", "target verification failed", service.reportProviderFailure(verifyCtx, playback, failureOperationVerifyPlaybackTarget, err))
 	}
 	if !validTargetFile(target, query) {
-		return service.failTask(ctx, task.ID, "target_invalid", "target verification invalid", ErrTargetUnavailable)
+		return service.failTask(verifyCtx, task.ID, "target_invalid", "target verification invalid", ErrTargetUnavailable)
 	}
 	if quota != nil {
 		// After Provider success, preserve pending on bookkeeping failure so its

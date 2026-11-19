@@ -574,6 +574,12 @@ type fakeProvider struct {
 	resolveErr     error
 	searchErr      error
 	downloadErr    error
+	// afterUpload runs once InitRapidUpload has produced its result, letting
+	// tests cancel the caller after the Provider-side write already happened.
+	afterUpload func()
+	// findTargetHonorsContext makes FindTargetFile fail like the real adapter
+	// when its context is already cancelled.
+	findTargetHonorsContext bool
 }
 
 func newFakeProvider() *fakeProvider {
@@ -637,16 +643,22 @@ func (provider *fakeProvider) InitRapidUpload(_ context.Context, _ p115integrati
 	defer provider.mu.Unlock()
 	provider.calls = append(provider.calls, "init_upload")
 	provider.uploadRequests = append(provider.uploadRequests, request)
-	if len(provider.uploadResults) == 0 {
-		return p115integration.RapidUploadResult{Status: p115integration.RapidUploadReused}, nil
+	result := p115integration.RapidUploadResult{Status: p115integration.RapidUploadReused}
+	if len(provider.uploadResults) > 0 {
+		result = provider.uploadResults[0]
+		provider.uploadResults = provider.uploadResults[1:]
 	}
-	result := provider.uploadResults[0]
-	provider.uploadResults = provider.uploadResults[1:]
+	if provider.afterUpload != nil {
+		provider.afterUpload()
+	}
 	return result, nil
 }
 
-func (provider *fakeProvider) FindTargetFile(_ context.Context, _ p115integration.Credential, _ p115integration.FileQuery) (*p115integration.File, error) {
+func (provider *fakeProvider) FindTargetFile(ctx context.Context, _ p115integration.Credential, _ p115integration.FileQuery) (*p115integration.File, error) {
 	provider.record("find_target")
+	if provider.findTargetHonorsContext && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	file := provider.targetFile
 	return &file, nil
 }
