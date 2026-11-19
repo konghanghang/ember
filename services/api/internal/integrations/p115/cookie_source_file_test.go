@@ -294,3 +294,35 @@ func assertSourceListQuery(t *testing.T, request *http.Request, pageSize int) {
 		t.Fatalf("unexpected source query: %s", request.URL.RawQuery)
 	}
 }
+
+// TestCookieHTTPAdapterResolveFileByPathIsolatesInvalidSiblingFiles keeps one
+// malformed unrelated file from failing every lookup in the same directory,
+// while a malformed selected file still fails closed as a protocol error.
+func TestCookieHTTPAdapterResolveFileByPathIsolatesInvalidSiblingFiles(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/files" || request.URL.Query().Get("cid") != "100" {
+			t.Fatalf("unexpected root file request: %s %v", request.URL.Path, request.URL.Query())
+		}
+		_, _ = w.Write([]byte(`{"state":true,"cid":100,"count":3,"offset":0,"data":[` +
+			`{"fid":788,"cid":100,"n":"uploading.mkv","pc":"` + fixtureDownloadPickCode + `","s":4096},` +
+			`{"fid":790,"cid":100,"n":"bad-pick.mkv","pc":"BAD","sha":"` + fixtureSHA1 + `","s":4096},` +
+			`{"fid":789,"cid":100,"n":"fixture-video.mkv","pc":"` + fixtureDownloadPickCode + `",` +
+			`"sha":"` + fixtureSHA1 + `","s":1024}]}`))
+	}))
+	defer server.Close()
+
+	adapter := newTestCookieHTTPAdapter(t, server)
+	file, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
+		RootID: "100", RelativePath: "fixture-video.mkv",
+	})
+	if err != nil || file == nil || file.ID != "789" {
+		t.Fatalf("ResolveFileByPath(valid) file=%+v error=%v", file, err)
+	}
+	for _, name := range []string{"uploading.mkv", "bad-pick.mkv"} {
+		if _, err := adapter.ResolveFileByPath(context.Background(), fixtureCredential(), FilePathQuery{
+			RootID: "100", RelativePath: name,
+		}); !errors.Is(err, ErrProviderProtocol) {
+			t.Fatalf("ResolveFileByPath(%s) error = %v, want ErrProviderProtocol", name, err)
+		}
+	}
+}

@@ -27,7 +27,7 @@ type sourceDirectoryFlight struct {
 	cancel  context.CancelFunc
 	waiters int
 	joined  int
-	entries []File // Immutable after done closes; callers return individual File copies.
+	entries []sourceListEntry // Immutable after done closes; callers return individual File copies.
 	err     error
 }
 
@@ -51,7 +51,7 @@ func sourceDirectoryKey(credential Credential, rootID, parentPath string) [sha25
 
 // do shares only unfinished reads. Each waiter owns its cancellation; the last
 // departing waiter removes and cancels the call so later requests can retry.
-func (group *sourceDirectoryFlights) do(ctx context.Context, key [sha256.Size]byte, resolve func(context.Context) ([]File, error)) ([]File, error) {
+func (group *sourceDirectoryFlights) do(ctx context.Context, key [sha256.Size]byte, resolve func(context.Context) ([]sourceListEntry, error)) ([]sourceListEntry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (group *sourceDirectoryFlights) do(ctx context.Context, key [sha256.Size]by
 
 // run publishes only complete snapshots and always removes the flight before
 // waking waiters. A canceled older call cannot remove a replacement flight.
-func (group *sourceDirectoryFlights) run(ctx context.Context, key [sha256.Size]byte, call *sourceDirectoryFlight, resolve func(context.Context) ([]File, error)) {
+func (group *sourceDirectoryFlights) run(ctx context.Context, key [sha256.Size]byte, call *sourceDirectoryFlight, resolve func(context.Context) ([]sourceListEntry, error)) {
 	defer call.cancel()
 	started := time.Now()
 	readTiming := &sourceReadTiming{}

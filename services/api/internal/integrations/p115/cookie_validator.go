@@ -75,7 +75,7 @@ func (v *CookieCredentialValidator) ValidateCredential(ctx context.Context, cred
 	if err != nil {
 		return AccountIdentity{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return AccountIdentity{}, fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamHTTPError("p115", resp.StatusCode))
 	}

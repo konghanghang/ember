@@ -231,7 +231,7 @@ Emby `PlaybackInfo` 提供媒体源 `Path` 和可能缺失或不可靠的 `Size`
 - 路径响应必须有顶层布尔 `state=true`，目录 ID 只接受顶层 `id` 或 `data.file_id` 的正十进制值；两者同时存在时必须相等。缺字段、非法值或冲突按协议错误，零 ID 按未找到处理，业务拒绝不回显原始响应。
 - 取得父目录 ID 后固定发送 `GET /files`，query 为 `aid=1`、该 `cid`、`cur=1`、`show_dir=1`、`fc_mix=1`、`count_folders=1`、`o=file_name`、`asc=1`、`limit=200` 和当前 `offset`。
 - `/files` 响应必须有顶层布尔 `state=true`，并严格映射 `cid/count/offset/data`；响应 `cid` 与请求不一致时视为未找到，防止无效目录被 Provider 静默回退到根目录。
-- 固定映射 Web 列表短字段：目录使用 `cid/pid/n`，文件使用 `fid/cid/n/pc/sha/s`。每一项的 parent 必须等于请求 `cid`，返回文件必须包含合法 pickCode、SHA1 和 size。
+- 固定映射 Web 列表短字段：目录使用 `cid/pid/n`，文件使用 `fid/cid/n/pc/sha/s`。每一项的 parent 必须等于请求 `cid`；JSON 结构、名称和目录字段非法仍使整页失败。文件的 fid、pickCode、SHA1 或 size 非法时只标记该文件无效：同目录其他文件和目录照常解析，只有精确命中这个无效文件时才返回协议错误，避免一个上传中或异常的兄弟文件让整个目录（以及共享读取的全部等待者）失败。
 - 最终文件在已经确定的父目录内使用“精确文件名 + 非目录”匹配。零候选返回 `ErrSourceFileNotFound`，多个同名候选即使 Size 不同也返回 `ErrSourceFileAmbiguous`，禁止任意选择第一条。唯一命中后必须由 115 响应提供合法 fileId、pickCode、SHA1、正数 Size 和正确 parentId；这些 Provider 字段才是后续文件身份。
 - 为了检测最终文件同名项，最终目录必须读取完整分页快照；快照 count 变化或分页不连续按协议错误处理。首期最多检查 `10,000` 项，超过返回 `ErrSourceDirectoryTooLarge`。中间目录由 Provider 路径接口选择，Ember 不再自行枚举并判断同名目录歧义。
 - 最终返回的 `fileId/pickCode/SHA1/size/parentId` 才是源文件身份；文件名和路径本身不能替代内容身份。
@@ -403,6 +403,8 @@ data=<RSA encrypted {pickcode,user_id}>
 | `errno=50003`、`50015` | pickCode 不存在，或不存在/已删除 | `ErrFileUnavailable`；与文件不存在同样隔离 |
 | 缺失、无法识别或其他 `errno` | 未确认 | 保持 `ErrProviderRejected`，不增加凭证失效或风控推断 |
 | 单一且 pickCode 匹配的解密条目中 `url=false/null`、缺失 URL 或空 URL | 无有效文件下载地址 | `ErrFileUnavailable`；不作为账号协议错误 |
+
+其余 Cookie GET 端点（uploadinfo、SHA1 查重、`/files/get_path_id`、`/files`、目标搜索）在 `state=false` 时只共享凭证失效码：先读 `errno`，缺失、`null` 或为 `0` 时再读 `errNo`，取第一个非零值；任一字段存在但格式非法时直接保持 `ErrProviderRejected`，不再读取后续字段；`99/990001` 返回 `ErrCredentialRejected`，其他码（包括上表的文件级码）仍为 `ErrProviderRejected`。依据是 115driver `BasicResp.Err()` 对所有接口统一读取 `errno/errNo` 并查同一张表；这些端点在真实登录失效时是否返回该码，同样**未经真实账号证实**。SHA1 查重原有的 `error="文件错误"` 空结果语义保持不变。
 
 证据：社区 Go 实现 [`SheltonZhu/115driver` 固定提交 `542720cb0034954750454e89f32b4852add6e2a9` 的 `pkg/driver/error.go`](https://github.com/SheltonZhu/115driver/blob/542720cb0034954750454e89f32b4852add6e2a9/pkg/driver/error.go) 给出上述 errno 表；同提交 [`pkg/driver/download.go` 的 `FileDownloadUrl.UnmarshalJSON` 与 `Valid`](https://github.com/SheltonZhu/115driver/blob/542720cb0034954750454e89f32b4852add6e2a9/pkg/driver/download.go#L14-L36) 明确容纳 `false/null`。这里只引用公开协议事实，不引入上游运行时依赖。真实端点是否在所有下载场景使用同一错误码仍未证实，未知码不类推。
 
@@ -650,7 +652,7 @@ DirectPlay 仅对源 preID 读取返回的类型化 `DownloadURLPolicyError(host
 
 | 输入或失败边界 | DirectPlay / Gateway 结果 | 账号健康影响 |
 | --- | --- | --- |
-| `ErrCredentialRejected`，包括 downurl 已识别的 `99/990001` | `account_unavailable` | `expired + disabled`；errno 的公开证据仍未经真实账号证实 |
+| `ErrCredentialRejected`，包括 downurl 与其他 Cookie GET 端点已识别的 `99/990001`（§5.5.1） | `account_unavailable` | `expired + disabled`；errno 的公开证据仍未经真实账号证实 |
 | `ErrProviderUnavailable`，包括裸 HTTP `403`、downurl/通用 GET 的非 context 响应体读取失败 | `provider_unavailable` | 默认 1 分钟 `cooling_down` |
 | `ErrProviderRateLimited`，包括 HTTP `429` | `provider_unavailable` | 默认 15 秒限流冷却，可配置 |
 | `ErrProviderRiskControl` | `provider_unavailable` | 默认 30 秒风控冷却，可配置；当前无已验证的 HTTP 触发源 |

@@ -172,12 +172,12 @@ func TestSourceDirectoryWaitersCancelIndependently(t *testing.T) {
 			var group sourceDirectoryFlights
 			key := sourceDirectoryKey(fixtureCredential(), "100", "Season")
 			started, release, stopped := make(chan struct{}), make(chan struct{}), make(chan struct{})
-			resolver := func(ctx context.Context) ([]File, error) {
+			resolver := func(ctx context.Context) ([]sourceListEntry, error) {
 				close(started)
 				defer close(stopped)
 				select {
 				case <-release:
-					return []File{{ID: "789"}}, nil
+					return []sourceListEntry{{File: File{ID: "789"}}}, nil
 				case <-ctx.Done():
 					return nil, ctx.Err()
 				}
@@ -225,7 +225,7 @@ func TestSourceDirectoryAllCanceledAllowsFreshFlight(t *testing.T) {
 	defer cancel()
 	oldResult := make(chan error, 1)
 	go func() {
-		_, err := group.do(ctx, key, func(ctx context.Context) ([]File, error) {
+		_, err := group.do(ctx, key, func(ctx context.Context) ([]sourceListEntry, error) {
 			<-ctx.Done()
 			close(oldStopped)
 			<-finishOld
@@ -244,10 +244,10 @@ func TestSourceDirectoryAllCanceledAllowsFreshFlight(t *testing.T) {
 	waitTestSignal(t, oldStopped, "last waiter did not cancel transport")
 	freshRelease, freshResult := make(chan struct{}), make(chan error, 1)
 	go func() {
-		_, err := group.do(context.Background(), key, func(ctx context.Context) ([]File, error) {
+		_, err := group.do(context.Background(), key, func(ctx context.Context) ([]sourceListEntry, error) {
 			select {
 			case <-freshRelease:
-				return []File{{ID: "790"}}, nil
+				return []sourceListEntry{{File: File{ID: "790"}}}, nil
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -277,10 +277,10 @@ func TestSourceDirectoryFailureAndDeadlineAreNotCached(t *testing.T) {
 	release := make(chan struct{})
 	var calls atomic.Int32
 	results := make(chan error, 2)
-	resolve := func(context.Context) ([]File, error) {
+	resolve := func(context.Context) ([]sourceListEntry, error) {
 		calls.Add(1)
 		<-release
-		return []File{{ID: "partial"}}, ErrProviderProtocol
+		return []sourceListEntry{{File: File{ID: "partial"}}}, ErrProviderProtocol
 	}
 	for range 2 {
 		go func() {
@@ -311,7 +311,7 @@ func TestSourceDirectoryFailureAndDeadlineAreNotCached(t *testing.T) {
 		t.Fatalf("pre-canceled request invoked resolver: %v", err)
 	}
 	group.timeout = 10 * time.Millisecond
-	_, err := group.do(context.Background(), key, func(ctx context.Context) ([]File, error) {
+	_, err := group.do(context.Background(), key, func(ctx context.Context) ([]sourceListEntry, error) {
 		<-ctx.Done()
 		return nil, ErrProviderUnavailable
 	})

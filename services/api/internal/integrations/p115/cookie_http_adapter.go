@@ -144,6 +144,7 @@ func (a *CookieHTTPAdapter) GetUploadInfo(ctx context.Context, credential Creden
 	}
 
 	var response struct {
+		providerErrorCodes
 		State   *bool      `json:"state"`
 		UserID  jsonUint64 `json:"user_id"`
 		UserKey *string    `json:"userkey"`
@@ -155,7 +156,7 @@ func (a *CookieHTTPAdapter) GetUploadInfo(ctx context.Context, credential Creden
 		return UploadInfo{}, protocolError("upload info state missing")
 	}
 	if !*response.State {
-		return UploadInfo{}, ErrProviderRejected
+		return UploadInfo{}, response.rejection()
 	}
 	if !response.UserID.set || response.UserID.value == 0 || response.UserKey == nil {
 		return UploadInfo{}, protocolError("upload info fields missing")
@@ -202,6 +203,7 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 	}
 
 	var response struct {
+		providerErrorCodes
 		State *bool           `json:"state"`
 		Error string          `json:"error"`
 		Data  json.RawMessage `json:"data"`
@@ -217,7 +219,7 @@ func (a *CookieHTTPAdapter) SearchBySHA1(ctx context.Context, credential Credent
 		if strings.TrimSpace(response.Error) == "文件错误" {
 			return []File{}, nil
 		}
-		return nil, ErrProviderRejected
+		return nil, response.rejection()
 	}
 
 	file, err := decodeSHASearchFile(response.Data)
@@ -248,7 +250,7 @@ func (a *CookieHTTPAdapter) ResolveFileByPath(
 	}
 
 	parentPath := strings.Join(normalized.Segments[:len(normalized.Segments)-1], "/")
-	entries, err := a.sourceFlights.do(ctx, sourceDirectoryKey(credential, normalized.RootID, parentPath), func(sharedCtx context.Context) ([]File, error) {
+	entries, err := a.sourceFlights.do(ctx, sourceDirectoryKey(credential, normalized.RootID, parentPath), func(sharedCtx context.Context) ([]sourceListEntry, error) {
 		parentID := normalized.RootID
 		if parentPath != "" {
 			var resolveErr error
@@ -263,7 +265,7 @@ func (a *CookieHTTPAdapter) ResolveFileByPath(
 		return nil, err
 	}
 	fileName := normalized.Segments[len(normalized.Segments)-1]
-	matches := make([]File, 0, 1)
+	matches := make([]sourceListEntry, 0, 1)
 	for _, entry := range entries {
 		if entry.Name == fileName && !entry.IsDirectory {
 			matches = append(matches, entry)
@@ -275,7 +277,10 @@ func (a *CookieHTTPAdapter) ResolveFileByPath(
 	if len(matches) != 1 {
 		return nil, ErrSourceFileAmbiguous
 	}
-	file := matches[0]
+	if matches[0].invalid != nil {
+		return nil, matches[0].invalid
+	}
+	file := matches[0].File
 	return &file, nil
 }
 
@@ -298,6 +303,7 @@ func (a *CookieHTTPAdapter) resolveSourceParentDirectory(
 		"path":      {relativePath},
 	}
 	var response struct {
+		providerErrorCodes
 		State *bool      `json:"state"`
 		ID    jsonUint64 `json:"id"`
 		Data  *struct {
@@ -311,7 +317,7 @@ func (a *CookieHTTPAdapter) resolveSourceParentDirectory(
 		return "", protocolError("source path response state missing")
 	}
 	if !*response.State {
-		return "", ErrProviderRejected
+		return "", response.rejection()
 	}
 	nestedID := jsonUint64{}
 	if response.Data != nil {
@@ -357,7 +363,7 @@ func (a *CookieHTTPAdapter) ResolveDirectoryByPath(
 			}
 			return nil, err
 		}
-		matches := make([]File, 0, 1)
+		matches := make([]sourceListEntry, 0, 1)
 		for _, entry := range entries {
 			if entry.IsDirectory && entry.Name == segment {
 				matches = append(matches, entry)
@@ -435,6 +441,7 @@ func (a *CookieHTTPAdapter) findTargetFileOnce(ctx context.Context, credential C
 		"type":         {"99"},
 	}
 	var response struct {
+		providerErrorCodes
 		State *bool           `json:"state"`
 		Data  json.RawMessage `json:"data"`
 	}
@@ -445,7 +452,7 @@ func (a *CookieHTTPAdapter) findTargetFileOnce(ctx context.Context, credential C
 		return nil, protocolError("target search state missing")
 	}
 	if !*response.State {
-		return nil, ErrProviderRejected
+		return nil, response.rejection()
 	}
 	if len(response.Data) == 0 || string(response.Data) == "null" {
 		return nil, protocolError("target search data missing")
@@ -524,7 +531,7 @@ func (a *CookieHTTPAdapter) InitRapidUpload(ctx context.Context, credential Cred
 	if err != nil {
 		return RapidUploadResult{}, err
 	}
-	defer response.Body.Close()
+	defer closeResponseBody(response.Body)
 	if err := mapCookieAPIStatus(response.StatusCode); err != nil {
 		return RapidUploadResult{}, err
 	}
@@ -618,7 +625,7 @@ func (a *CookieHTTPAdapter) GetDownloadURL(ctx context.Context, credential Crede
 	if err != nil {
 		return DownloadURLResult{}, err
 	}
-	defer response.Body.Close()
+	defer closeResponseBody(response.Body)
 	if err := mapCookieAPIStatus(response.StatusCode); err != nil {
 		return DownloadURLResult{}, err
 	}
@@ -741,7 +748,7 @@ func (a *CookieHTTPAdapter) readFileRange(ctx context.Context, credential Creden
 		}
 		return FileRangeHash{}, err
 	}
-	defer response.Body.Close()
+	defer closeResponseBody(response.Body)
 	if response.StatusCode != http.StatusPartialContent {
 		if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
 			return FileRangeHash{}, protocolError("range response status invalid")
@@ -805,7 +812,7 @@ func (a *CookieHTTPAdapter) DeleteFile(ctx context.Context, credential Credentia
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrProviderUnavailable, upstream.SafeUpstreamError(err, "p115"))
 	}
-	defer response.Body.Close()
+	defer closeResponseBody(response.Body)
 	if err := mapCookieAPIStatus(response.StatusCode); err != nil {
 		return err
 	}
@@ -860,7 +867,7 @@ func (a *CookieHTTPAdapter) getJSON(
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer closeResponseBody(response.Body)
 	if err := mapCookieAPIStatus(response.StatusCode); err != nil {
 		return err
 	}
@@ -887,7 +894,7 @@ func (a *CookieHTTPAdapter) listSourceDirectory(
 	ctx context.Context,
 	credential Credential,
 	parentID string,
-) ([]File, error) {
+) ([]sourceListEntry, error) {
 	started := time.Now()
 	timing, _ := ctx.Value(sourceReadTimingKey{}).(*sourceReadTiming)
 	defer func() {
@@ -904,10 +911,11 @@ func (a *CookieHTTPAdapter) listSourceDirectory(
 		maxEntries = sourceResolveMaxEntries
 	}
 
-	entries := make([]File, 0)
+	entries := make([]sourceListEntry, 0)
 	expectedCount := -1
 	for offset := 0; ; {
 		var response struct {
+			providerErrorCodes
 			State  *bool             `json:"state"`
 			CID    jsonUint64        `json:"cid"`
 			Count  jsonUint64        `json:"count"`
@@ -936,7 +944,7 @@ func (a *CookieHTTPAdapter) listSourceDirectory(
 			return nil, protocolError("source list response state missing")
 		}
 		if !*response.State {
-			return nil, ErrProviderRejected
+			return nil, response.rejection()
 		}
 		if !response.CID.set || !response.Count.set || !response.Offset.set || response.Data == nil ||
 			response.Count.value > math.MaxInt || response.Offset.value > math.MaxInt {
@@ -977,9 +985,18 @@ func (a *CookieHTTPAdapter) listSourceDirectory(
 	}
 }
 
+// sourceListEntry is one listed child. invalid is set only for a file whose
+// identity fields failed validation: the listing stays usable for siblings,
+// and only selecting that exact file fails closed.
+type sourceListEntry struct {
+	File
+	invalid error
+}
+
 // decodeSourceListEntry maps the pinned web /files short fields without
-// accepting aliases from unrelated Provider endpoints.
-func decodeSourceListEntry(data json.RawMessage) (File, error) {
+// accepting aliases from unrelated Provider endpoints. Structural failures
+// (JSON, name, directory shape) still reject the whole listing.
+func decodeSourceListEntry(data json.RawMessage) (sourceListEntry, error) {
 	var payload struct {
 		FileID     jsonUint64 `json:"fid"`
 		CategoryID jsonUint64 `json:"cid"`
@@ -990,39 +1007,47 @@ func decodeSourceListEntry(data json.RawMessage) (File, error) {
 		Size       jsonUint64 `json:"s"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return File{}, protocolError("source list item invalid")
+		return sourceListEntry{}, protocolError("source list item invalid")
 	}
 	if payload.Name == nil || !payload.CategoryID.set {
-		return File{}, protocolError("source list fields missing")
+		return sourceListEntry{}, protocolError("source list fields missing")
 	}
 	name := *payload.Name
 	if strings.TrimSpace(name) == "" || !utf8.ValidString(name) || strings.ContainsAny(name, "\x00\r\n") {
-		return File{}, protocolError("source list name invalid")
+		return sourceListEntry{}, protocolError("source list name invalid")
 	}
 	if !payload.FileID.set {
 		if payload.CategoryID.value == 0 || !payload.ParentID.set {
-			return File{}, protocolError("source directory fields missing")
+			return sourceListEntry{}, protocolError("source directory fields missing")
 		}
-		return File{
+		return sourceListEntry{File: File{
 			ID:          strconv.FormatUint(payload.CategoryID.value, 10),
 			ParentID:    strconv.FormatUint(payload.ParentID.value, 10),
 			Name:        name,
 			IsDirectory: true,
+		}}, nil
+	}
+	// Keep name and parent so path matching and the listing parent check still
+	// apply; identity failures surface only if this file is selected.
+	invalidFile := func(reason string) (sourceListEntry, error) {
+		return sourceListEntry{
+			File:    File{ParentID: strconv.FormatUint(payload.CategoryID.value, 10), Name: name},
+			invalid: protocolError(reason),
 		}, nil
 	}
 	if payload.FileID.value == 0 || payload.PickCode == nil || payload.SHA1 == nil || !payload.Size.set ||
 		payload.Size.value > math.MaxInt64 {
-		return File{}, protocolError("source file fields missing")
+		return invalidFile("source file fields missing")
 	}
 	pickCode := strings.TrimSpace(*payload.PickCode)
 	if !isValidDownloadPickCode(pickCode) {
-		return File{}, protocolError("source file pickcode invalid")
+		return invalidFile("source file pickcode invalid")
 	}
 	normalizedSHA1, err := normalizeSHA1(*payload.SHA1)
 	if err != nil {
-		return File{}, protocolError("source file hash invalid")
+		return invalidFile("source file hash invalid")
 	}
-	return File{
+	return sourceListEntry{File: File{
 		ID:          strconv.FormatUint(payload.FileID.value, 10),
 		PickCode:    pickCode,
 		ParentID:    strconv.FormatUint(payload.CategoryID.value, 10),
@@ -1030,7 +1055,7 @@ func decodeSourceListEntry(data json.RawMessage) (File, error) {
 		SHA1:        normalizedSHA1,
 		Size:        int64(payload.Size.value),
 		IsDirectory: false,
-	}, nil
+	}}, nil
 }
 
 type normalizedFilePathQuery struct {
@@ -1488,18 +1513,58 @@ func parseRapidUploadRange(value string, fileSize int64) (ByteRange, error) {
 // Unknown or malformed codes keep the existing rejection semantics; raw text
 // never supplies credential or account-health evidence.
 func downloadRejection(errno json.RawMessage) error {
-	var code jsonProviderCode
-	if len(errno) == 0 || json.Unmarshal(errno, &code) != nil {
-		return ErrProviderRejected
-	}
-	switch code.value {
-	case "99", "990001":
-		return ErrCredentialRejected
+	switch providerCodeValue(errno) {
 	case "70005", "231011", "50003", "50015":
 		return ErrFileUnavailable
 	default:
+		return stateFalseRejection(errno)
+	}
+}
+
+// providerErrorCodes captures the two numeric code fields 115 Web APIs use on
+// state=false. Community clients (115driver BasicResp) read errno first and
+// errNo only when errno is absent or zero.
+type providerErrorCodes struct {
+	Errno json.RawMessage `json:"errno"`
+	ErrNo json.RawMessage `json:"errNo"`
+}
+
+// rejection maps a state=false response to the shared credential allowlist.
+func (codes providerErrorCodes) rejection() error {
+	return stateFalseRejection(codes.Errno, codes.ErrNo)
+}
+
+// stateFalseRejection uses the first non-zero code. Only the not-logged-in
+// codes are endpoint independent; file-scoped codes stay with downurl, and
+// unknown codes keep ErrProviderRejected. A present but malformed code fails
+// closed instead of falling through, so it can never disable an account.
+func stateFalseRejection(codes ...json.RawMessage) error {
+	for _, raw := range codes {
+		if len(raw) == 0 || string(raw) == "null" {
+			continue
+		}
+		value := providerCodeValue(raw)
+		if value == "" {
+			return ErrProviderRejected
+		}
+		if value == "0" {
+			continue
+		}
+		if value == "99" || value == "990001" {
+			return ErrCredentialRejected
+		}
 		return ErrProviderRejected
 	}
+	return ErrProviderRejected
+}
+
+// providerCodeValue returns a validated code or empty for missing/malformed input.
+func providerCodeValue(raw json.RawMessage) string {
+	var code jsonProviderCode
+	if len(raw) == 0 || json.Unmarshal(raw, &code) != nil {
+		return ""
+	}
+	return code.value
 }
 
 // decodeChromeDownloadURL requires one pickcode-bound entry before treating
@@ -1739,6 +1804,18 @@ func parseCookieHTTPEndpoint(value string) (*url.URL, error) {
 		return nil, protocolError("endpoint scheme invalid")
 	}
 	return parsed, nil
+}
+
+// responseDrainLimit bounds how much of an unread body is discarded so the
+// connection can return to the pool; larger leftovers (for example a 200 full
+// file answering a Range request) are closed without reuse.
+const responseDrainLimit = 64 << 10
+
+// closeResponseBody drains a bounded remainder before closing, letting error
+// and early-return paths keep their keep-alive connection.
+func closeResponseBody(body io.ReadCloser) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, responseDrainLimit))
+	_ = body.Close()
 }
 
 // newCookieHTTPClient applies the shared timeout and fail-closed redirect policy for Cookie endpoints.

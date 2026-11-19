@@ -142,3 +142,39 @@ func TestCookieBodyReadFailureClassification(t *testing.T) {
 		}
 	}
 }
+
+// TestCookieStateFalseCredentialCodesAcrossEndpoints keeps login-expired
+// errno/errNo consistent with downurl on the other Cookie GET endpoints, while
+// unknown and file-scoped codes stay ordinary rejections there.
+func TestCookieStateFalseCredentialCodesAcrossEndpoints(t *testing.T) {
+	for _, test := range []struct {
+		name, body string
+		want       error
+	}{
+		{name: "errno 99", body: `{"state":false,"errno":99}`, want: ErrCredentialRejected},
+		{name: "errno string 990001", body: `{"state":false,"errno":"990001"}`, want: ErrCredentialRejected},
+		{name: "errNo 990001", body: `{"state":false,"errNo":990001}`, want: ErrCredentialRejected},
+		{name: "zero errno falls through to errNo", body: `{"state":false,"errno":0,"errNo":99}`, want: ErrCredentialRejected},
+		{name: "file code stays rejected", body: `{"state":false,"errno":70005}`, want: ErrProviderRejected},
+		{name: "unknown code", body: `{"state":false,"errno":123456}`, want: ErrProviderRejected},
+		{name: "missing code", body: `{"state":false}`, want: ErrProviderRejected},
+		{name: "malformed code", body: `{"state":false,"errno":{"error":"fixture-secret"}}`, want: ErrProviderRejected},
+		{name: "malformed errno does not fall through", body: `{"state":false,"errno":{"error":"x"},"errNo":99}`, want: ErrProviderRejected},
+		{name: "null errno falls through", body: `{"state":false,"errno":null,"errNo":99}`, want: ErrCredentialRejected},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, err := newCookieHTTPAdapter(httpDoerFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(test.body))}, nil
+			}), cookieUploadInfoURL, cookieSHASearchURL, cookieUploadInitURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := adapter.GetUploadInfo(context.Background(), fixtureCredential()); !errors.Is(err, test.want) {
+				t.Fatalf("GetUploadInfo() error = %v, want %v", err, test.want)
+			}
+			if _, err := adapter.SearchBySHA1(context.Background(), fixtureCredential(), FileQuery{SHA1: fixtureSHA1, Size: 1024}); !errors.Is(err, test.want) {
+				t.Fatalf("SearchBySHA1() error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
