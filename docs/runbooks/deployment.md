@@ -99,7 +99,7 @@ cp .env.example .env
 
 3. 数据库迁移由 `ember-api` 启动期内嵌自动应用，部署者不再需要任何手工 SQL。
    - 空数据库首次启动：进入"新空库"分支，按字典序 forward-only 跑全部 `infrastructure/database/` 顶层 SQL 完成初始化
-   - 已有数据库升级：当前直接升级支持起点是 `2026-06-05` / v1.6.0 截点；支持窗口内直接 `docker compose pull && up -d`，启动期 Migrate 自动按 forward-only 应用未应用的顶层 SQL。旧于该截点且未执行过已归档增量的数据库，需先人工对齐或先升到中间版本。详见 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 的"自动迁移与 schema_migrations"章节。
+   - 已有数据库升级：当前直接升级支持起点是 `2026-06-05` / v1.6.0 截点；支持窗口内按[已有数据库升级流程](./deployment-environment.md#已有数据库升级)更新，启动期 Migrate 自动应用未执行的顶层 SQL。旧于该截点且未执行过已归档增量的数据库，需先人工对齐或先升到中间版本。详见 [`infrastructure/database/README.md`](../../infrastructure/database/README.md) 的"自动迁移与 schema_migrations"章节。
 
 4. 拉取镜像并启动。
 
@@ -122,6 +122,8 @@ docker compose --profile gateway up -d
 docker compose pull
 docker compose --profile bot up -d
 ```
+
+升级已经运行的 polling Bot 时，先走下文的[分步升级流程](#polling-bot-随应用升级)。
 
 5. 做最小验证。
 
@@ -170,6 +172,41 @@ docker compose --profile gateway up -d
 ```
 
 镜像构建细节见 [Docker 构建指南](./docker-build-guide.md)。
+
+## Polling Bot 随应用升级
+
+适用于 Telegram 更新模式为 `polling` 的既有部署。旧 Bot 在正常关停时通过 Internal API 释放 polling 租约。如果 API 先停，释放请求可能失败，新 Bot 会因租约仍有效而退出。
+
+在现有 Compose 项目目录中执行，沿用部署时的 Compose 文件和环境配置。先确认数据库和已启用的 Redis 正常，并完成目标版本发布说明要求的备份和前置检查。以下命令以 Gateway 已启用为例。未启用 Gateway 的实例从命令中移除 `--profile gateway` 和 `ember-gateway`。
+
+1. 先拉取目标镜像。拉取成功后再停止旧 Bot，缩短 Bot 停机时间。
+
+   ```bash
+   docker compose --profile bot --profile gateway pull ember-api ember-gateway ember-web ember-bot
+   ```
+
+2. 保持旧 API 健康，单独停止旧 Bot。`stop` 使用 Compose 的关停宽限期，让 Bot 完成退出与释放租约。确认旧 Bot 已退出，检查本次的 `Application shutdown complete` 和 `endpoint=release_polling_lock` 错误日志。
+
+   ```bash
+   docker compose --profile bot stop ember-bot
+   docker compose --profile bot ps -a ember-bot
+   docker compose --profile bot logs --tail=100 ember-bot
+   ```
+
+3. 更新 API、Gateway 和 Web，等待健康检查通过。`--no-deps` 将更新限定在列出的应用服务。若发布说明要求先停旧 API 和 Gateway，在第 2 步完成后、运行下面的命令前执行。
+
+   ```bash
+   docker compose --profile gateway up -d --no-deps --pull never --wait --wait-timeout 120 ember-api ember-gateway ember-web
+   ```
+
+4. 上一步成功后再启动新 Bot。若旧 Bot 被强制终止或释放请求失败，先确认旧实例已退出，从退出时起留出 90 秒让未释放的租约自然过期。可以在第 3 步更新应用时一并等待。
+
+   ```bash
+   docker compose --profile bot up -d --no-deps --pull never --wait --wait-timeout 120 ember-bot
+   docker compose --profile bot logs --tail=100 ember-bot
+   ```
+
+确认 Bot 健康，并在本次启动日志中看到 `Telegram polling 已启动`。若仍报租约占用，按[部署排障](./deployment-troubleshooting.md#6-bot-401-或收不到-telegram-回调)检查。
 
 ## 最小验收清单
 

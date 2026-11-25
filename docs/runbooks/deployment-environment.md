@@ -123,7 +123,7 @@ API 与 Gateway 都把日志写到 stdout 和按日文件，但文件前缀固�
 
 ### 已有数据库升级
 
-线上以 `AUTO_MIGRATE=false` 运行，不依赖 GORM 自动迁移。当前直接升级支持起点是 `2026-06-05` / v1.6.0 截点；从该截点之后的已支持版本升级，部署者只需：
+线上以 `AUTO_MIGRATE=false` 运行，不依赖 GORM 自动迁移。当前直接升级支持起点是 `2026-06-05` / v1.6.0 截点。升级前先核对目标版本的发布说明。已启用 polling Bot 的实例按[分步升级流程](./deployment.md#polling-bot-随应用升级)更新，让旧 Bot 在旧 API 停止前释放租约。其他实例可按现有 Compose 配置拉取镜像并启动。
 
 ```bash
 docker compose pull
@@ -179,7 +179,7 @@ API 启动期注册的常驻 cron（`CRON_ENABLED=true` 时启用）新增两项
 | `emby-async-compensation` | `@every 10m` | 拉取 `failed_emby_async_ops` 中 `nextAttemptAt <= now()` 的待补偿操作（每轮上限 50 条），按 origin/action 路由到 emby service；成功删除该行，失败指数退避（30s/2m/10m/1h/6h/24h），retries > 6 写 ERROR 日志告警 | 进程内 panic 由 cron runner 捕获；DB 异常仅记录错误日志，不影响其他 cron |
 | `media-gap-scans-cleanup` | `@weekly` | 删除 `media_gap_scans` 表中 7 天之前的 `success / failed` 记录（`running` 不清理，便于排查孤儿） | 同上 |
 
-升级期建议：在支持窗口内直接 `docker compose pull && up -d`，启动期 Migrate 阶段配合 advisory lock 保证串行；如失败立即 restart loop，不会出现"半成品 schema + 跑起来的 API"。
+升级按本节的[已有数据库升级流程](#已有数据库升级)执行。启动期 Migrate 阶段配合 advisory lock 保证串行，迁移失败时 API 会退出并由 Docker 重试。
 
 ### 本地空库快速搭建
 
@@ -251,7 +251,7 @@ API 启动时会检查是否已有 `role=admin` 的用户：
 - `POSTGRES_USER` / `POSTGRES_PASSWORD` 已设置；显式提供 `DATABASE_URL` 时已指向可访问的 PostgreSQL
 - 所有密钥都不是示例值
 - 启用 `ember-bot` 时（`docker compose --profile bot`），Telegram 相关变量已补齐
-- 如果是支持窗口内升级环境，无需任何手工 SQL：`docker compose pull && up -d` 后由 ember-api 启动期 Migrate 阶段自动应用未应用的顶层 SQL
+- 支持窗口内按[已有数据库升级流程](#已有数据库升级)执行，由 `ember-api` 启动期自动应用未执行的顶层 SQL
 
 ## 相关文档
 

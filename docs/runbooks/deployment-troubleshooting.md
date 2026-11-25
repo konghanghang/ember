@@ -231,6 +231,8 @@ docker compose logs --tail=200 ember-bot
 curl http://localhost:8000/health
 ```
 
+若 polling 模式在更新后提示 `Polling 模式已有其他 Bot 实例持锁`，先检查旧实例是否仍在运行，以及旧实例的关停日志是否出现 `endpoint=release_polling_lock` 错误。旧实例已退出时，给未释放的租约留出最多 90 秒自然到期，让容器按重启策略重试。租期届满后的重试仍失败时，核对是否还有实例续租，以及 Bot 到 Internal API 的连通性和请求错误。
+
 本地联调不要在这里反复试，直接去 [Cloudflared 本地联调](./cloudflared-local-testing.md)。
 
 ### 7. 某些功能页面能打开，但能力不可用
@@ -264,6 +266,8 @@ docker compose up -d
 ```
 
 ### 拉取最新镜像后重启
+
+已启用 polling Bot 的实例按[分步升级流程](./deployment.md#polling-bot-随应用升级)更新。其他实例可执行以下命令。
 
 ```bash
 docker compose pull
